@@ -1843,8 +1843,20 @@ ENTRY(fast_second_level_miss)
 	 * pteval = ((pmdval - PAGE_OFFSET) & PAGE_MASK) | PAGE_DIRECTORY
 	 */
 
+#ifdef CONFIG_EXTENDED_MEMORY
+	/* Extended memory starts at KSEG_MEM_CACHED_START - EXT_MEM_SIZE
+	 * virtually, but KSEG_MEM_SIZE physically.
+	 */
+	movi	a1, XCHAL_KSEG_CACHED_VADDR
+	sub	a0, a0, a1
+	movi	a1, XCHAL_KSEG_SIZE + EXT_MEM_SIZE
+	add	a1, a0, a1
+	movltz	a0, a1, a0
+#else
 	movi	a1, -PAGE_OFFSET
 	add	a0, a0, a1		# pmdval - PAGE_OFFSET
+#endif
+
 	extui	a1, a0, 0, PAGE_SHIFT	# ... & PAGE_MASK
 	xor	a0, a0, a1
 

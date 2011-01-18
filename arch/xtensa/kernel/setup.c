@@ -152,6 +152,13 @@ static int __init parse_tag_mem(const bp_tag_t *tag)
 		       (unsigned long)mi->end - (unsigned long)mi->start);
 		return -EINVAL;
 	}
+#if 0 &&  defined(CONFIG_EXTENDED_MEMORY)
+	// FIXME: Workaround for a well known board.
+	printk("## Extending physical memory from %dMB to %dMB\n",
+		mi->end / 1024 / 1024, (mi->end + 0x04000000) / 1024 / 1024);
+	mi->end += 0x04000000;
+#endif
+
 	sysmem.bank[sysmem.nr_banks].type  = mi->type;
 	sysmem.bank[sysmem.nr_banks].start = PAGE_ALIGN(mi->start);
 	sysmem.bank[sysmem.nr_banks].end   = mi->end & PAGE_MASK;

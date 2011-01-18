@@ -133,7 +133,18 @@ ENTRY(clear_user_page)
 
 	/* Setup a temporary DTLB with the color of the VPN */
 
+#ifdef CONFIG_EXTENDED_MEMORY
+	/* 'Translate' extended memory to the end of KSEG memory and KSEG to 0*/
+	movi	a4, XCHAL_KSEG_CACHED_VADDR
+	movi	a5, XCHAL_KSEG_SIZE + EXT_MEM_SIZE
+	sub	a2, a2, a4
+	movi	a4, PAGE_KERNEL | _PAGE_HW_WRITE
+	add	a5, a2, a5
+	movltz	a2, a5, a2
+#else
 	movi	a4, -PAGE_OFFSET + (PAGE_KERNEL | _PAGE_HW_WRITE)
+#endif
+
 	movi	a5, TLBTEMP_BASE_1			# virt
 	add	a6, a2, a4				# ppn
 	add	a2, a5, a3				# add 'color'
@@ -185,7 +196,11 @@ ENTRY(copy_user_page)
 	or	a9, a9, a8
 	slli	a4, a4, PAGE_SHIFT
 	s32i	a9, a5, PAGE_STRUCT_FLAGS
+#ifdef CONFIG_EXTENDED_MEMORY
+	movi	a5, PAGE_KERNEL | _PAGE_HW_WRITE
+#else
 	movi	a5, -PAGE_OFFSET + (PAGE_KERNEL | _PAGE_HW_WRITE)
+#endif
 
 	beqz	a6, 1f
 
@@ -195,6 +210,15 @@ ENTRY(copy_user_page)
 	call8	__invalidate_dcache_page
 
 	/* Setup a temporary DTLB with a matching color. */
+
+#ifdef CONFIG_EXTENDED_MEMORY
+	/* 'Translate' extended memory to the end of KSEG memory and KSEG to 0*/
+	movi	a8, XCHAL_KSEG_CACHED_VADDR
+	movi	a6, XCHAL_KSEG_SIZE + EXT_MEM_SIZE
+	sub	a2, a2, a8
+	add	a6, a2, a6
+	movltz	a2, a6, a2
+#endif
 
 	movi	a8, TLBTEMP_BASE_1			# base
 	add	a6, a2, a5				# ppn

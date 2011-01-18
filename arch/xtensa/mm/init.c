@@ -117,16 +117,25 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 /*
  * Initialize the bootmem system and give it all the memory we have available.
  *
- *   +----------+--+----------------------+----------------+
- *   |          |  |                      |                |
- *   |          |  |         RAM          |                |
- *   |          |  |                      |                |
- *   +----------+--+----------------------+----------------+
- *   |          |  |                      |                |
- *   +- PFN 0   |  +- min_low_pfn         +- max_low_pfn   +- max_pfn
- *              |
- *              +- ARCH_PFN_OFFSET
- *              +- PLATFORM_DEFAULT_MEM_START >> PAGE_SIZE
+ *                               <-- ZONE NORMAL -->
+ *                <-- ZONE DMA -->                  <-- Zone HIGHMEM -->
+ *   +---------+--+---------------+-----------------+------------------+
+ *   |         |  |               :                 |                  |
+ *   |         |  |      RAM      : EXTENDED MEMORY |     HIGHMEM      |
+ *   |         |  |               :                 |                  |
+ *   +---------+--+---------------+-----------------+------------------+
+ *   |         |  |               |                 |                  |
+ *   +- PFN 0  |  +- min_low_pfn  |                 +- max_low_pfn     +- max_pfn
+ *             |                  +- PLATFORM_DEFAULT_MEM_SIZE
+ *             +- ARCH_PFN_OFFSET
+ *             +- PLATFORM_DEFAULT_MEM_START >> PAGE_SIZE
+ *
+ * Note that the extended memory is mapped below the 'regular' memory in
+ * virtual space.
+ *
+ * FIXME:
+ *   Need to investigate if we should always reserve PFN 0, so we won't allocate
+ *   contiguous memory across the 'regular'/extended memory boundary.
  */
 
 void __init bootmem_init(void)
@@ -155,7 +164,7 @@ void __init bootmem_init(void)
 	if (min_low_pfn > max_pfn)
 		panic("No memory found!\n");
 
-	max_low_pfn = max_pfn < MAX_MEM_PFN >> PAGE_SHIFT ?
+	max_low_pfn = max_pfn < (MAX_MEM_PFN >> PAGE_SHIFT) ?
 		max_pfn : MAX_MEM_PFN >> PAGE_SHIFT;
 
 	printk("%s: min_low_pfn:0x%lx, max_low_pfn:0x%lx, max_pfn:0x%lx\n", __func__,
@@ -200,19 +209,17 @@ void __init zones_init(void)
 	for (i = 0; i < MAX_NR_ZONES; i++)
 		zones_size[i] = 0;
 
-#if 0
-	/* All pages are DMA-able, so we put them all in the DMA zone. */
-	zones_size[ZONE_DMA] = max_low_pfn - ARCH_PFN_OFFSET;
+#ifdef CONFIG_EXTENDED_MEMORY
+	/* Set up a DMA zone if we have more than XCHAL_KSEG_SIZE phys. memory. */
+	if (max_low_pfn > (XCHAL_KSEG_SIZE >> PAGE_SHIFT) - ARCH_PFN_OFFSET)
+		zones_size[ZONE_DMA] = (PLATFORM_DEFAULT_MEM_SIZE >> PAGE_SHIFT)
+					- ARCH_PFN_OFFSET;
+
+	zones_size[ZONE_NORMAL] = (max_low_pfn - ARCH_PFN_OFFSET) 
+				  - zones_size[ZONE_DMA];
 #else
-	/* 
-	 * Xtensa doesn't need a ZONE_DMA. I386 needs it because
-	 * ISA cards can only access the lower 16MB of memory.
-	 *
-	 * REMIND: 
- 	 *    ARM enables CONFIG_ZONE_DMA in all of their default configs. 
-	 *    Why?
-	 */
-	zones_size[ZONE_NORMAL] = max_low_pfn - ARCH_PFN_OFFSET;
+	// FIXME: Disable zone-dma when we don't need it
+	zones_size[ZONE_DMA] = max_low_pfn - ARCH_PFN_OFFSET;
 #endif
 
 #ifdef CONFIG_HIGHMEM

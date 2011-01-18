@@ -26,22 +26,47 @@
 #define XCHAL_KSEG_SIZE         0x08000000
 
 /*
+ * Extended memory option.
+ * Because of the static mapping, we can usually only use up to 128MB memory.
+ * The extended option allows to extend that space up to 128MB+192MB in 
+ * increments of 64MB.
+ * (we currently need to reserve some memory for virtual kernel space)
+ */
+
+// FIXME test
+#define PLATFORM_EXT_MEM_START 0xcc000000
+
+#if defined(CONFIG_MMU) && defined(CONFIG_EXTENDED_MEMORY)
+# ifdef PLATFORM_EXT_MEM_START
+#  define EXT_MEM_START		PLATFORM_EXT_MEM_START
+# else
+#  define EXT_MEM_START		0xc8000000
+# endif
+# define EXT_MEM_SIZE		(XCHAL_KSEG_CACHED_VADDR - (EXT_MEM_START))
+#endif
+
+/*
  * PAGE_SHIFT determines the page size
  */
 
-#define PAGE_SHIFT		12
-#define PAGE_SIZE		(__XTENSA_UL_CONST(1) << PAGE_SHIFT)
-#define PAGE_MASK		(~(PAGE_SIZE-1))
+#define PAGE_SHIFT	12
+#define PAGE_SIZE	(__XTENSA_UL_CONST(1) << PAGE_SHIFT)
+#define PAGE_MASK	(~(PAGE_SIZE-1))
 
 #ifdef CONFIG_MMU
-#define PAGE_OFFSET		XCHAL_KSEG_CACHED_VADDR
-#define MAX_MEM_PFN		XCHAL_KSEG_SIZE
+#ifdef CONFIG_EXTENDED_MEMORY
+#define PAGE_OFFSET	(EXT_MEM_START)
+#define MAX_MEM_PFN	(XCHAL_KSEG_SIZE + EXT_MEM_SIZE)
 #else
-#define PAGE_OFFSET		0
-#define MAX_MEM_PFN		(PLATFORM_DEFAULT_MEM_START + PLATFORM_DEFAULT_MEM_SIZE)
+#define PAGE_OFFSET	XCHAL_KSEG_CACHED_VADDR
+#define MAX_MEM_PFN	XCHAL_KSEG_SIZE
+# endif
+#else
+#define PAGE_OFFSET	0
+#define MAX_MEM_PFN	(PLATFORM_DEFAULT_MEM_START + PLATFORM_DEFAULT_MEM_SIZE)
 #endif
 
-#define PGTABLE_START		0x80000000
+#define PGTABLE_START	0x80000000
 
 /*
  * Cache aliasing:
@@ -212,8 +237,25 @@ extern void copy_user_page(void*, void*, unsigned long, struct page*);
 
 #define ARCH_PFN_OFFSET		(PLATFORM_DEFAULT_MEM_START >> PAGE_SHIFT)
 
+#ifdef CONFIG_EXTENDED_MEMORY
+/* With the extended memory option, we map the lower physical memory to the
+ * higher virtual address starting ad 0xd000_0000 (XCHAL_KSEG_CACHED_VADDR)
+ * and the higher physical memory to the lower virtual address (EXT_MEM_START).
+ */
+#define __pa(vaddr) ((unsigned long)					\
+	((unsigned long)(vaddr) >= XCHAL_KSEG_CACHED_VADDR ?		\
+	 (unsigned long)(vaddr) - XCHAL_KSEG_CACHED_VADDR :		\
+	 (unsigned long)(vaddr) - EXT_MEM_START + XCHAL_KSEG_SIZE))
+
+#define __va(paddr)							\
+	((void*)((unsigned long)(paddr) >= XCHAL_KSEG_SIZE ?		\
+	 (unsigned long)(paddr) - XCHAL_KSEG_SIZE + EXT_MEM_START :	\
+	 (unsigned long)(paddr) + XCHAL_KSEG_CACHED_VADDR))
+#else
 #define __pa(x)			((unsigned long) (x) - PAGE_OFFSET)
 #define __va(x)			((void *)((unsigned long) (x) + PAGE_OFFSET))
+#endif
+
 #define pfn_valid(pfn)		((pfn) >= ARCH_PFN_OFFSET && ((pfn) - ARCH_PFN_OFFSET) < max_mapnr)
 #ifdef CONFIG_DISCONTIGMEM
 # error CONFIG_DISCONTIGMEM not supported

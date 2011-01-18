@@ -66,6 +66,16 @@ config MMU
 	  Build a Conventional Kernel with full MMU support,
 	  ie: it supports a TLB with auto-loading, Page protection.
 
+config EXTENDED_MEMORY
+	depends on MMU		# depends !MMU_V3
+	bool "Extended Memory"
+	default false
+	help
+	  The virtual MMU map only supports up to 128MB. Enabling this feature
+	  extends the memory to up to 128MB + 192MB by using the 'way 4' TLB
+	  entries to map the additional memory to the Cxxx.xxxx memory region. 
+	  The default extension allows mapping up to 128MB additional memory.
+
 config VARIANT_IRQ_SWITCH
 	def_bool n
 

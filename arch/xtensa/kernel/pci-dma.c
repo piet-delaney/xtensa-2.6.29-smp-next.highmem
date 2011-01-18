@@ -39,6 +39,14 @@ dma_alloc_coherent(struct device *dev,size_t size,dma_addr_t *handle,gfp_t flag)
 
 	flag &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
+#ifdef CONFIG_EXTENDED_MEMORY
+	/* We need to make sure that any coherent memory is allocated in the
+	 * normal (non-extended) memory. Since we define the DMA zone to only
+	 * cover the normal memory, we have to set the DMA flag here
+	 */
+	flag |= GFP_DMA;
+#endif
+
 	if (dev == NULL || (dev->coherent_dma_mask < 0xffffffff))
 		flag |= GFP_DMA;
 	ret = (unsigned long)__get_free_pages(flag, get_order(size));

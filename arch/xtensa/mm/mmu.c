@@ -16,9 +16,19 @@
 
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 
+static void __init kmap_init(void)
+{
+#ifdef CONFIG_HIGHMEM
+	pkmap_page_table = early_pte_alloc(pmd_off_k(PKMAP_BASE), PKMAP_BASE, _PAGE_KERNEL_TABLE);
+#endif
+}
+
+
 void __init paging_init(void)
 {
 	memset(swapper_pg_dir, 0, PAGE_SIZE);
+
+	kmap_init();
 }
 
 /*

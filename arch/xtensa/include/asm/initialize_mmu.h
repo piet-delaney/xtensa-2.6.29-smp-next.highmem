@@ -247,14 +247,29 @@
 	//  Step 4:  Setup MMU with the old V2 mappings.
 	//
 	//	Step 4a:
-	//           This changes the size of all of pre-initialized TLB
-	//	     entries in way 6 from 512MB to 256MB and changes the 
-	//	     vaddrs by dividing them in half. Only Way 6 is effected
-	//	     because curently it's the only way with variable size pages.	
+	//           This changes the size of the of pre-initialized TLB Entries:
+	//	         Way 4 from 1MB   to 64MB
+	//	         Way 5 Unchanged  at 256MB      (Could be extended to 512MB)
+	//	         Way 6 from 512MB to 256MB 
 	//
-	movi	a6, 0x01000000	// way 6 page size = 256 MB (index 1)
-	wsr	a6, ITLBCFG	// apply way 6 page size (Inst)
-	wsr	a6, DTLBCFG	// apply way 6 page size (Data)
+ 	// 	     Each way page size is defined in a nibble, starting from the LSB.
+ 	//           	Way 1 can be set with ZERO  bits starting at bit  0 (0x00000X)
+ 	//           	Way 2 can be set with ZERO  bits starting at bit  8 (0x0000X0)
+ 	//           	Way 3 can be set with ZERO  bits starting at bit 12 (0x000X00)
+ 	//           	Way 4 can be set with three bits starting at bit 16 (0x003000)
+ 	//           	Way 5 can be set with one   bits starting at bit 20 (0x010000)
+ 	//           	Way 6 can be set with one   bits starting at bit 20 (0x100000)
+ 	//           	...
+	//
+	//	     Way 4 currenty isn't being used, so all of the vaddrs are
+	//	     currenty set to zero. However way 6 had the initial identity
+	//	     mappings and this config register change will changes the 
+	//	     vaddrs by dividing them in half.
+	//
+	movi	a6, 0x01030000	// Set way 6 page size = 256 MB (index 1), ...
+			        // ... way 4 page size =  64 MB (index 3)
+	wsr	a6, itlbcfg	// apply ways {4,5,6} page sizes to Inst TLB.
+	wsr	a6, dtlbcfg	// apply ways {4,5,6} page sizes to Data TLB.
 	isync
 
 	//
@@ -292,6 +307,17 @@
 	wdtlb	a4, a5
 	witlb	a4, a5
 
+#if defined(CONFIG_EXTENDED_MEMORY) || defined(CONFIG_HIGHMEM)
+	movi	a5, 0xcc000004			// 64M page at 0xcc000000 (way 4)
+	movi	a4, 0x08000000 + CA_WRITEBACK	// paddr 0x08000000 (128MB), writeback
+	wdtlb	a4, a5
+	witlb	a4, a5
+
+	movi	a5, 0xc8000004			// 64MB page at 0xb8000000 (way 4)
+	movi	a4, 0x08000000 + CA_BYPASS	// paddr 0x08000000 (128MB), bypass
+	wdtlb	a4, a5
+	witlb	a4, a5
+#endif
 	
 	// Step 4c:
 	// Set up Way 6 TLB Entries:
@@ -352,6 +378,15 @@
 	nop
 	nop
 	nop
+	// Initialize Way 4 with the largest page, 64M.
+	// Each way is defined in a nibble, starting from
+	// the LSB. Way 4 is set with the three bits starting
+	// at bit 16 (0x300).
+	//
+	// Ways 5 and 6 were not configurable in pre-V3 MMU's.
+	movi    a2, 0x0003000
+	wsr	a2, dtlbcfg
+	wsr	a2, itlbcfg
 
 #endif /* XCHAL_HAVE_PTP_MMU && XCHAL_HAVE_SPANNING_WAY */
 #endif /* __ASSEMBLY__ */

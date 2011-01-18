@@ -143,3 +143,9 @@ _RemappedSetupMMU:
 
 	.end    no-absolute-literals
 
+	.section image.remapped_text, "x"
+
+	.global  _Remapped_image_start
+	. = 0x00003000
+_Remapped_image_start:
+

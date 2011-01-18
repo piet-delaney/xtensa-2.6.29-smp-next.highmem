@@ -148,7 +148,7 @@ void __init bootmem_init(void)
 	min_low_pfn = ~0;
 
 	for (i = 0; i < sysmem.nr_banks; i++) {
-		printk("%s: sysmem.bank[i:%d].{type:%lx, start:0x%lx, end:0x%lx}\n", __func__, i,
+		printk("%s: sysmem.bank[i:%d].{type:%lx, start:0x%08lx, end:0x%08lx}\n", __func__, i,
 			    sysmem.bank[i].type, 
 			    sysmem.bank[i].start, 
 			    sysmem.bank[i].end);
@@ -243,7 +243,7 @@ void __init mem_init(void)
 	highmemsize = 0;
 
 #ifdef CONFIG_HIGHMEM
-#error HIGHGMEM not implemented in init.c
+// #error HIGHGMEM not implemented in init.c
 #endif
 
 	totalram_pages += free_all_bootmem();

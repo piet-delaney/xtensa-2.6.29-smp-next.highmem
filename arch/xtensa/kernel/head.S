@@ -59,6 +59,26 @@
 	.begin  no-absolute-literals
 
 _start:	
+#if defined(CONFIG_EXTENDED_MEMORY) || defined(CONFIG_HIGHMEM)
+	/* Hack till problem with PROM is resolved */
+	movi	$a0, 0
+	movi	$a1, 0
+	movi	$a2, 0
+	movi	$a3, 0
+	movi	$a4, 0
+	movi	$a5, 0
+	movi	$a6, 0
+	movi	$a7, 0
+	movi	$a8, 0
+	movi	$a9, 0
+	movi	$a10, 0
+	movi	$a11, 0
+	movi	$a12, 0
+	movi	$a13, 0
+	movi	$a14, 0
+	movi	$a15, 0
+#endif
+	
 	/* 
 	 * Preserve the pointer to the boot parameter list, a2, in EXCSAVE_1.
 	 * EXCSAVE_1 will later be set up to point to exc_table[cpu]

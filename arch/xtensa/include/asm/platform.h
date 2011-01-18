@@ -22,7 +22,9 @@ enum xtensa_board {
 	AVNET_UNKNOWN = 0,
 	AVNET_LX60  = 1,
 	AVNET_LX110 = 2,
-	AVNET_LX200 = 4
+	AVNET_LX200 = 4,
+	AVNET_LX200_EXT_MEM = 5		/*   512MB SIMM Split:{RAM:   384 MB, ROM: 128MB}  */
+					/* 0x200MB SIMM Split: RAM: 0X180 MB, ROM:  80MB}  */
 };
 
 extern enum xtensa_board platform_board;

@@ -18,7 +18,11 @@
  */
 #include <asm/vectors.h>
 OUTPUT_ARCH(xtensa)
+#if 0
 ENTRY(_ResetVector)
+#else
+ENTRY(_Remapped_image_start)
+#endif
 
 /*
  * This code runs at the Reset Vector (0XFE000000) and includes

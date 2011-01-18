@@ -129,7 +129,13 @@ struct board_info_s {
 		enum 		 xtensa_board board;
 		char 		*board_name;
 };
-struct board_info_s  board_info[3] = {
+
+#define N_BOARDS 4
+struct board_info_s  board_info[N_BOARDS] = {
+	{ .himem = (unsigned int) ((180 * 1024 * 1024) - 1),
+	  .board = AVNET_LX200,
+	  .board_name = "AVNET_LX200_EXT_MEM"
+	},
 	{ .himem = (unsigned int) ((96 * 1024 * 1024) - 1),
 	  .board = AVNET_LX200,
 	  .board_name = "AVNET_LX200"
@@ -169,9 +175,8 @@ void platform_init(bp_tag_t *bootparams)
 	volatile unsigned char saved_byte;
 	volatile unsigned char saved_byte_total;
 	struct board_info_s *bi;
-	void *saved_bus_exception_hander_addr;
-	void *saved_data_exception_hander_addr;
-	void *saved_addr_exception_hander_addr;
+	void *saved_exception_hander_addr[64];
+	long pa;
 	int board;
 	int cpu = 0;
 
@@ -200,17 +205,26 @@ void platform_init(bp_tag_t *bootparams)
 	 *
 	 * Using Early Exception Handler Table till per_cpu code knows how many
 	 * CPU's are being brought on line and we can initialized the final tables.
-	 */ 
+	 */
+	memset(&saved_exception_hander_addr[0], 0, sizeof(saved_exception_hander_addr));
 	trap_initialize_early_exc_table();	/* Set default exception handlers; including C (Default) handeler */
-	saved_bus_exception_hander_addr  = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ERROR, probe_exception_handler);	/* 03 */
-	saved_data_exception_hander_addr = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_DATA_ERROR, probe_exception_handler);	/* 13 */
-	saved_addr_exception_hander_addr = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, probe_exception_handler);	/* 15 */
-	trap_enable_early_exc_table();		/* Enable Exception Table usage by setting excsave1 register */
 
-	for (board = 0; board < 3; board++) {
+	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ERROR]      = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ERROR, probe_exception_handler);	 /* 03 */
+	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_DATA_ERROR] = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_DATA_ERROR, probe_exception_handler); /* 13 */
+	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ADDR_ERROR] = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, probe_exception_handler); /* 15 */
+	saved_exception_hander_addr[EXCCAUSE_DTLB_MISS]             = trap_set_early_C_handler(EXCCAUSE_DTLB_MISS, probe_exception_handler);		 /* 24 */
+
+	trap_enable_early_exc_table();				/* Enable Exception Table usage by setting excsave1 register */
+
+	for (board = 0; board < N_BOARDS; board++) {
 		bus_errors = 0;
 		bi = &board_info[board];
-		ptr = (char *) (bi->himem | 0xD8000000);	/* Uncached memory access */
+		pa = (long) bi->himem;
+		if (pa < 0x08000000)                           	/* If physical address < 128M we are in KSEG */
+			ptr = (char *) (pa | 0xD8000000);	/* Uncached memory access via KSEG */
+		else
+			ptr = (char *) (pa | 0xC8000000);       /* Uncached memory access via EXTENDED_MEMORY; keep in sync with initialize_mmu.h  */
+
 		saved_byte = *ptr;
 		saved_byte_total += saved_byte;
 		if (bus_errors)					/* Set if we got an exception */
@@ -232,9 +246,10 @@ void platform_init(bp_tag_t *bootparams)
 
 		break;						/* Memory seems to exist for this board */
 	}
-	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, saved_bus_exception_hander_addr);	
-	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, saved_data_exception_hander_addr);
-	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, saved_addr_exception_hander_addr);
+	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ERROR,      saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ERROR]);	/* 03 */
+	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_DATA_ERROR, saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_DATA_ERROR]);	/* 13 */
+	trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ADDR_ERROR]);	/* 15 */
+	trap_set_early_C_handler(EXCCAUSE_DTLB_MISS,             saved_exception_hander_addr[EXCCAUSE_DTLB_MISS]);		/* 24 */
 
 	if (ptr) {
 		platform_mem_size = bi->himem + 1;

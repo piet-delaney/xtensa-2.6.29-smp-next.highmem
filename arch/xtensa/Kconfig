@@ -66,6 +66,14 @@ config MMU
 	  Build a Conventional Kernel with full MMU support,
 	  ie: it supports a TLB with auto-loading, Page protection.
 
+config HIGHMEM
+	bool "High Memory Support"
+	depends on EXPERIMENTAL
+	default false
+	help
+	  VERY PRELIMINARY, may have problems with Xtensa MMU which is 
+	  Virtually Intexed Physically Tagged (VIPT).
+
 config EXTENDED_MEMORY
 	depends on MMU		# depends !MMU_V3
 	bool "Extended Memory"

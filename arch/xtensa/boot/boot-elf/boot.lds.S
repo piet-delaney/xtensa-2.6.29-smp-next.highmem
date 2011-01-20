@@ -18,7 +18,7 @@
  */
 #include <asm/vectors.h>
 OUTPUT_ARCH(xtensa)
-#if 0
+#if 1
 ENTRY(_ResetVector)
 #else
 ENTRY(_Remapped_image_start)

@@ -36,7 +36,7 @@
 /* Memory configuration. */
 
 #define PLATFORM_DEFAULT_MEM_START 0x00000000
-#define PLATFORM_DEFAULT_MEM_SIZE  (CONFIG_XTENSA_PLATFORM_DEFAULT_MEM_SIZE_IN_MB * 1024 * 1024)
+#define PLATFORM_DEFAULT_MEM_SIZE  0x08000000	/* 128MB Max Mapped in Default KSEG Segment */
 
 
 /* Interrupt configuration. */

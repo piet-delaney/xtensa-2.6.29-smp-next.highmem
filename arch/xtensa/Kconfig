@@ -419,18 +419,6 @@ config XTENSA_PLATFORM_XTAVNET_LX110_USB_SUPPORT
 	   EZ-Host Programmable Embedded USB Host/Peripheral Controller.
 	   The CY7C67300 is only available on the Avnet LX110 Board.
 
-config XTENSA_PLATFORM_DEFAULT_MEM_SIZE_IN_MB
-	int "System RAM Size in Megabytes"
-	depends on XTENSA_PLATFORM_XTAVNET
-	default 64 
-	help
-	Specify the memory size of you Avnet Board in Megabytes.
-	Normal Defaults are:
-	     64  Megabytes for the LX60.
-	     48  Megabytes for the LX110.
-	     96  Megabytes for the LX200.
-	     512 Megabytes for the LX200 for V3 MMU extended memory testing.
-	
 config XTENSA_PLATFORM_CUSTOM_NAME
 	string "Custom Platform Name"
 	depends on XTENSA_PLATFORM_CUSTOM

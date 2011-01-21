@@ -48,6 +48,7 @@ int __attribute__ ((weak)) scm_detach_fds_compat(void)			{ panic(__func__); }
 int __attribute__ ((weak)) cookie_v4_init_sequence(void)		{ panic(__func__); }
 #endif
 
+
 /* References to section boundaries */
 
 extern char _ftext, _etext, _fdata, _edata, _rodata_end;
@@ -57,6 +58,7 @@ extern char __init_begin, __init_end;
  * mem_reserve(start, end, must_exist)
  *
  * Reserve some memory from the memory pool.
+ * Used for example to reserve the memory used by exception vectors.
  *
  * Parameters:
  *  start	Start of region,
@@ -71,6 +73,10 @@ extern char __init_begin, __init_end;
 int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 {
 	int i;
+
+	printk("%s(start:0X%lx, end:0X%lx, must_exist:%d)\n", __func__,
+		   start,       end,       must_exist);
+
 
 	if (start == end)
 		return 0;
@@ -110,6 +116,7 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 			sysmem.bank[i].end   = sysmem.bank[sysmem.nr_banks].end;
 		}
 	}
+
 	return -1;
 }
 
@@ -117,8 +124,7 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 /*
  * Initialize the bootmem system and give it all the memory we have available.
  *
- *                               <-- ZONE NORMAL -->
- *                <-- ZONE DMA -->                  <-- Zone HIGHMEM -->
+ *             |<--- ZONE DMA --->|<--ZONE NORMAL-->|<--Zone HIGHMEM-->|
  *   +---------+--+---------------+-----------------+------------------+
  *   |         |  |               :                 |                  |
  *   |         |  |      RAM      : EXTENDED MEMORY |     HIGHMEM      |
@@ -126,7 +132,7 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
  *   +---------+--+---------------+-----------------+------------------+
  *   |         |  |               |                 |                  |
  *   +- PFN 0  |  +- min_low_pfn  |                 +- max_low_pfn     +- max_pfn
- *             |                  +- PLATFORM_DEFAULT_MEM_SIZE
+ *             |                  +- XCHAL_KSEG_SIZE
  *             +- ARCH_PFN_OFFSET
  *             +- PLATFORM_DEFAULT_MEM_START >> PAGE_SIZE
  *
@@ -138,9 +144,15 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
  *   contiguous memory across the 'regular'/extended memory boundary.
  */
 
+unsigned long reserved_pages = 0;
+
 void __init bootmem_init(void)
 {
 	unsigned long pfn;
+	unsigned long total_pfns = 0;
+	unsigned long type;
+	unsigned long start;
+	unsigned long end;
 	unsigned long bootmap_start, bootmap_size;
 	int i;
 
@@ -148,17 +160,27 @@ void __init bootmem_init(void)
 	min_low_pfn = ~0;
 
 	for (i = 0; i < sysmem.nr_banks; i++) {
-		printk("%s: sysmem.bank[i:%d].{type:%lx, start:0x%08lx, end:0x%08lx}\n", __func__, i,
-			    sysmem.bank[i].type, 
-			    sysmem.bank[i].start, 
-			    sysmem.bank[i].end);
+		type = sysmem.bank[i].type;
+		start = sysmem.bank[i].start;
+		end = sysmem.bank[i].end;
 
-		pfn = PAGE_ALIGN(sysmem.bank[i].start) >> PAGE_SHIFT;
+		printk("%s: sysmem.bank[i:%d].{type:%lx, start:0x%08lx, end:0x%08lx}\n", __func__,
+			                i,     type,     start,        end); 
+
+		pfn = PAGE_ALIGN(start) >> PAGE_SHIFT;
 		if (pfn < min_low_pfn)
 			min_low_pfn = pfn;
-		pfn = PAGE_ALIGN(sysmem.bank[i].end - 1) >> PAGE_SHIFT;
+		pfn = PAGE_ALIGN(end - 1) >> PAGE_SHIFT;
 		if (pfn > max_pfn)
 			max_pfn = pfn;
+
+		printk("%s: total_pfns:%lu += ((end:0X%lx - start:0X%lx):0X%lx:%lu >> PAGESHIFT):0X%lx:%lu\n", __func__,
+	            	    total_pfns,         end,        start, 
+				 	       (end - start), (end - start),
+					       ((end - start) >> PAGE_SHIFT),
+					       ((end - start) >> PAGE_SHIFT) );
+
+		total_pfns += ((end - start)  >> PAGE_SHIFT);
 	}
 
 	if (min_low_pfn > max_pfn)
@@ -166,6 +188,13 @@ void __init bootmem_init(void)
 
 	max_low_pfn = max_pfn < (MAX_MEM_PFN >> PAGE_SHIFT) ?
 		max_pfn : MAX_MEM_PFN >> PAGE_SHIFT;
+
+	reserved_pages = (max_low_pfn - min_low_pfn) - total_pfns;
+
+	printk("%s: reserved_pages = %lu = (max_low_pfn:0x%lx - min_low_pfn:0x%lx):0x%lx:%lu - total_pfns:%lu;\n", __func__,
+		    reserved_pages,         max_low_pfn,        min_low_pfn,   
+				           (max_low_pfn - min_low_pfn),                        
+				           (max_low_pfn - min_low_pfn),                        total_pfns);
 
 	printk("%s: min_low_pfn:0x%lx, max_low_pfn:0x%lx, max_pfn:0x%lx\n", __func__,
 		    min_low_pfn,       max_low_pfn,       max_pfn);
@@ -188,6 +217,12 @@ void __init bootmem_init(void)
 	/* Reserve the bootmem bitmap area */
 
 	mem_reserve(bootmap_start, bootmap_start + bootmap_size, 1);
+
+	printk("%s: reserved_pages:%lu += bootmap_size:%lu;\n", __func__,
+		    reserved_pages,       bootmap_size);
+
+	reserved_pages += bootmap_size;
+
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
 					 bootmap_start >> PAGE_SHIFT,
 					 min_low_pfn,
@@ -204,10 +239,10 @@ void __init bootmem_init(void)
 void __init zones_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES];
-	int i;
+	unsigned long zones_hole[MAX_NR_ZONES];
 
-	for (i = 0; i < MAX_NR_ZONES; i++)
-		zones_size[i] = 0;
+	memset(zones_size, 0, sizeof(zones_size));
+	memset(zones_hole, 0, sizeof(zones_hole));
 
 #ifdef CONFIG_EXTENDED_MEMORY
 	/* Set up a DMA zone if we have more than XCHAL_KSEG_SIZE phys. memory. */
@@ -225,8 +260,16 @@ void __init zones_init(void)
 #ifdef CONFIG_HIGHMEM
 	zones_size[ZONE_HIGHMEM] = max_pfn - max_low_pfn;
 #endif
+	/* 
+ 	 * Removed any pages starting from ARCH_PFN_OFFSET that weren't entered into the bootmem.
+ 	 * 'reserved_pages' is the total of pages that were reserved from going into the bootmem bitmap.
+ 	 */
+	printk("%s: zones_hole[ZONE_DMA] = reserved_pages:%lu + (min_low_pfn - ARCH_PFN_OFFSET):%lu;\n", __func__,
+		                           reserved_pages,      (min_low_pfn - ARCH_PFN_OFFSET) );
 
-	free_area_init_node(0, zones_size, ARCH_PFN_OFFSET, NULL);
+	zones_hole[ZONE_DMA] = reserved_pages + (min_low_pfn - ARCH_PFN_OFFSET);
+
+	free_area_init_node(0, zones_size, ARCH_PFN_OFFSET, zones_hole);
 }
 
 /*

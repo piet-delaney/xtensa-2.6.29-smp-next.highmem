@@ -237,20 +237,44 @@ extern void copy_user_page(void*, void*, unsigned long, struct page*);
 
 #define ARCH_PFN_OFFSET		(PLATFORM_DEFAULT_MEM_START >> PAGE_SHIFT)
 
+
 #ifdef CONFIG_EXTENDED_MEMORY
-/* With the extended memory option, we map the lower physical memory to the
- * higher virtual address starting ad 0xd000_0000 (XCHAL_KSEG_CACHED_VADDR)
+#define __pa(x) xtensa_pa((unsigned long) (x))
+#define __va(x) xtensa_va((unsigned long) (x))
+/* 
+ * With the extended memory option, we map the lower physical memory to the
+ * higher virtual address starting at 0xd000_0000 (XCHAL_KSEG_CACHED_VADDR)
  * and the higher physical memory to the lower virtual address (EXT_MEM_START).
  */
-#define __pa(vaddr) ((unsigned long)					\
-	((unsigned long)(vaddr) >= XCHAL_KSEG_CACHED_VADDR ?		\
-	 (unsigned long)(vaddr) - XCHAL_KSEG_CACHED_VADDR :		\
-	 (unsigned long)(vaddr) - EXT_MEM_START + XCHAL_KSEG_SIZE))
+static inline  unsigned long xtensa_pa(unsigned long vaddr) {
+	unsigned long paddr;
 
-#define __va(paddr)							\
-	((void*)((unsigned long)(paddr) >= XCHAL_KSEG_SIZE ?		\
-	 (unsigned long)(paddr) - XCHAL_KSEG_SIZE + EXT_MEM_START :	\
-	 (unsigned long)(paddr) + XCHAL_KSEG_CACHED_VADDR))
+#ifdef CONFIG_DEBUG_KERNEL
+	if (vaddr <  EXT_MEM_START || 
+	    vaddr >=  XCHAL_KSEG_CACHED_VADDR + XCHAL_KSEG_SIZE) {
+		extern void panic(const char *fmt, ...);
+
+		panic(__func__);
+	}
+#endif
+	if (vaddr >= XCHAL_KSEG_CACHED_VADDR)
+		paddr = vaddr - XCHAL_KSEG_CACHED_VADDR;
+	else
+ 		paddr = vaddr - EXT_MEM_START + XCHAL_KSEG_SIZE;
+
+	return(paddr);
+}
+
+static inline  void *xtensa_va(unsigned long paddr) {
+	unsigned long vaddr;
+
+	if (paddr >= XCHAL_KSEG_SIZE)
+		vaddr = paddr - XCHAL_KSEG_SIZE + EXT_MEM_START;
+	else
+	 	vaddr = paddr + XCHAL_KSEG_CACHED_VADDR;
+
+	return((void *) vaddr);
+}
 #else
 #define __pa(x)			((unsigned long) (x) - PAGE_OFFSET)
 #define __va(x)			((void *)((unsigned long) (x) + PAGE_OFFSET))

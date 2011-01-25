@@ -45,7 +45,11 @@
  */
 
 #ifndef MAX_DMA_ADDRESS
+#ifdef CONFIG_EXTENDED_MEMORY
+#define MAX_DMA_ADDRESS		(EXT_MEM_START + EXT_MEM_SIZE - 1)
+#else
 #define MAX_DMA_ADDRESS		(PAGE_OFFSET + XCHAL_KIO_SIZE - 1)
+#endif
 #endif
 
 /* Reserve and release a DMA channel */

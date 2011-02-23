@@ -24,7 +24,7 @@ set print pretty
 set print array
 set print union
 set pagination off
-set can-use-hw-watchpoints 0
+set can-use-hw-watchpoints 1
 set print elements 64
 set var $doing_commands = 0
 set var $sa_tcp_breakpoints = 0
@@ -52,7 +52,7 @@ set var $debug_clear_lazy_smp_coprocessor_flushing_enabled = 0
 
 # NOTE: A Breakpoint at init_arch causes 2nd CPU to get stuck;
 #       which is a handy way to come up with just 1 CPU
-set var $debug_init_arch = 1
+set var $debug_init_arch = 0
 
 # $debug_reset needed for placing breakpoints with V3 MMU
 set var $debug_reset = 1		
@@ -64,13 +64,21 @@ set var $debug_platform_init = 0
 set var $debug_platform_setup = 0
 set var $debug_setup_arch = 0
 set var $debug_mem_init = 0
+set var $debug_page_table_code = 0
+set var $debug_bootmem_init = 0
+set var $debug_early_page_alloc = 0
+set var $debug_highmem_init = 0
+set var $debug_xtensa_highmem = 0
+set var $debug_generic_highmem = 0
+set var $debug_page_faults = 0
 set var $debug_free_area_init_node = 0
 set var $debug_unmap_region = 0
 set var $debug_open_eth = 0
 set var $debug_exceptions = 0
+set var $debug_page_migration = 0
 set var $mx = 0
-set var $debug_iss_simulation = 1
-set var $debug_hw_breakpoints_supported = 0
+set var $debug_iss_simulation = 0
+set var $debug_hw_breakpoints_supported = 1
 
 if $mx
 	set var $debug_secondary = 1
@@ -131,7 +139,7 @@ if $mx
 #	target remote localhost:20010 0
 #	target remote localhost:20000 0
 else
-	add-symbol-file vmlinux 0
+	add-symbol-file vmlinux 0xd0003000
 	file arch/xtensa/boot/Image.elf
 	if ($debug_iss_simulation != 0 )
 	  # Simulator can used up to 128MB [134,217,728 Bytes]
@@ -161,7 +169,7 @@ if $debug_iss_simulation == 0
   end
   
   echo "load: Started\n"
-  # load
+  load
   echo "load: Completed\n"
   
   if $monitor_trace_supported
@@ -209,16 +217,117 @@ def set_breakpoints
 		set skip_free_of_initmem = 1
 	end
 
+	if $debug_page_table_code
+		echo "\n"
+		echo "Setting Page Table Vmalloc Code  Breakpoints (mm/vmalloc.c)\n"
+		break map_vm_area
+		break  vmap_page_range
+		break   vmap_pud_range
+		break    vmap_pte_range
+		break     __pte_alloc_kernel
+		break      pte_alloc_one_kernel
+#		break __cache_alloc
+#		break pgd_ctor
+	end
+
+	if $debug_page_migration
+		echo "\n"
+		echo "Setting page migration Breakpoints\n"
+		break setup_usemap
+		break get_pageblock_migratetype
+		break get_pageblock_flags_group
+		break free_hot_cold_page
+		break free_pages_bulk
+	end
+		
+
+	if $debug_pmd_code
+		echo "\n"
+		echo "Setting Page Middle Directory (PMD) Code  Breakpoints\n"
+	end
+
 	if $debug_bootmem_init 
 		echo "\n"
-		echo "Setting Memory Initialization Breakpoints\n"
+		echo "Setting Boot Memory Initialization Breakpoints\n"
 		break mem)init
 		break bootmem_init
 		break zones_init
 		break free_reserved_mem
 		break free_initmem
+		break free_area_init_node
+		break free_bootmem
+		break mark_bootmem
+		break mark_bootmem_node
+		break init_bootmem_node
+		break init_bootmem
+		break free_all_bootmem_core
+		break init_bootmem_core
+	end
+	
+	if $debug_early_page_alloc
+		echo "\n"
+		echo "Setting Early Page Allocation Initialization Breakpoints\n"
+		break free_area_init_node
+		break alloc_node_mem_map
+		break calculate_node_totalpages
+		break free_hot_page
+		break mem_init
 	end
 
+	if $debug_highmem_init
+		echo "\n"
+		echo "Setting High-Memory Initialization Breakpoints (arch/xtensa/mm/mmu.c)\n"
+		break page_table_range_init
+		break permanent_kmaps_init
+		break pagetable_init
+		break kmap_init
+		break init_mmu
+		break paging_init
+		break pgd_ctor
+		break pgtable_cache_init
+	end
+
+	if $debug_xtensa_highmem
+		echo "\n"
+		echo "Setting Xtensa High-Memory Breakpoints (arch/xtensa/mm/highmem.c)\n"
+		break kmap
+		break kunmap
+		break debug_kmap_atomic_prot
+		break kmap_atomic_prot
+#		break kmap_atomic
+#		break kunmap_atomic
+		break kpte_clear_flush		
+		break kmap_atomic_pfn
+		break kmap_atomic_to_page
+#		break __pte_alloc_kernel
+#		break xdr_partial_copy_from_skb
+	end
+
+	if $debug_generic_highmem
+		echo "\n"
+		echo "Setting Generic High-Memory Breakpoints (mm/highmem.c)\n"
+#		break nr_free_highpages
+		break flush_all_zero_pkmaps
+		break kmap_flush_unused
+		break map_new_virtual
+		break kmap_high
+		break kunmap_high
+		break page_address_map
+		break page_address
+		break set_page_address
+		break page_address_init
+	end
+
+	if $debug_page_faults
+		break platform_init
+		break do_page_fault
+		break handle_mm_fault
+		break handle_pte_fault
+		break do_linear_fault
+		break __do_fault
+		break filemap_fault
+	end
+		
 	if ($mx != 0)
 	    # echo "MX\n"
 	    if ($debug_cpu_init != 0)
@@ -575,11 +684,15 @@ def set_breakpoints
 	break break_on 
 	break die 
 	break panic
+	break warn_slowpath
 #	break xtensa_breakpoint
 #	break show_regs
 #	break handle_pte_fault
 #	break bad_page_fault
+	break bad_page
 	break bad_page_fault_bp
+	break update_mmu_cache_bp
+	break IRQ_likely_stack_overflow_breakpoint
 #	break swapon
 	break do_debug
 	break do_illegal_instruction
@@ -609,6 +722,7 @@ def source_gdb_macros
     source showtlb.gdb
     source showcache.gdb
     source show_mem_pte.gdb
+    source show_pages.gdb
 end
 
 def set_kernel_flags
@@ -632,7 +746,8 @@ end
 # play with configurable global variables.
 #
 if $debug_hw_breakpoints_supported
-  hbreak set_breakpoints
+  show can-use-hw-watchpoints
+  hbreak _startup
 else
   break set_breakpoints
 end
@@ -644,8 +759,13 @@ commands $_startup
     source_gdb_macros
     set_kernel_flags    
     delete $_startup
+    if $debug_hw_breakpoints_supported	
+        hbreak *&_DoubleExceptionVector_Hang	
+#       hbreak 0X200014fc
+    end
     info breakpoints
     set var $doing_commands = 0
+    set bootmem_debug = 1	
 end
 
 
@@ -706,6 +826,9 @@ end
 
 if $debug_iss_simulation
    echo "Starting Simulation\n"
+   break _ResetVector
+   break _image_start
+   break _startup
    run
 end
 

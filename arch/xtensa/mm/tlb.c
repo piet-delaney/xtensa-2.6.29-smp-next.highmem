@@ -148,3 +148,14 @@ void local_flush_tlb_page (struct vm_area_struct *vma, unsigned long page)
 	local_irq_restore(flags);
 }
 
+void local_flush_tlb_kernel_page(unsigned long kaddr)
+{
+	int found = 0;
+	unsigned long page = kaddr & PAGE_MASK;
+
+	found = invalidate_all_dtlb_mappings(page);
+
+	if (found > 1)
+		panic(__func__);
+}
+

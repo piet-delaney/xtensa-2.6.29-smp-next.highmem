@@ -22,12 +22,42 @@
 #include <asm/system.h>
 #include <asm/pgalloc.h>
 
+// #undef DEBUG_PAGE_FAULT
+#define DEBUG_PAGE_FAULT
+
+#ifdef DEBUG_PAGE_FAULT
+/*
+ * Enable Fault Debug Here, with .xt-gdbinit file, or via CONFIG_CMDLINE. 
+ * Ex:
+ *     CONFIG_CMDLINE="console=ttyS0 ... coredump_filter=0xff page_fault_debug"
+ */
+int page_fault_debug = 0;
+static int page_fault_printks = 0;
+
+static int __init page_fault_debug_setup(char *buf)
+{
+	page_fault_debug = 1;
+        return 0;
+}
+
+early_param("page_fault_debug", page_fault_debug_setup);
+
+#define dprintf(fmt, args...) ({                        \
+        if (unlikely(page_fault_debug))                 \
+                printk(KERN_INFO                        \
+                        "PageFault::%s " fmt,           \
+                        __func__, ## args);             \
+})
+
+#else
+##define dprintf(fmt, args...)
+#endif
+
+
 void bad_page_fault(struct pt_regs*, unsigned long, int);
 
 DEFINE_PER_CPU(unsigned long, asid_cache) = ASID_USER_FIRST;
 
-#undef DEBUG_PAGE_FAULT
-//#define DEBUG_PAGE_FAULT
 
 /*
  * This routine handles page faults.  It determines the address,
@@ -70,8 +100,13 @@ void do_page_fault(struct pt_regs *regs)
 		    exccause == EXCCAUSE_FETCH_CACHE_ATTRIBUTE) ? 1 : 0;
 
 #ifdef DEBUG_PAGE_FAULT
-	printk("[%d %s:%d:%08x:%d:%08x:%s%s]\n", smp_processor_id(), current->comm, current->pid,
-	       address, exccause, regs->pc, is_write? "w":"", is_exec? "x":"");
+	if (page_fault_debug) {
+		if ((page_fault_printks++ % 32) == 0)
+			printk("%s: cpu comm pid address exccasue pc is_write? is_exec?\n", __func__);
+
+		dprintf("[%d %s:%d:%08x:%d:%08lx:%s%s]\n", smp_processor_id(), current->comm, current->pid,
+	       		address, exccause, regs->pc, is_write? "w":"", is_exec? "x":"");
+	}
 #endif
 
 	down_read(&mm->mmap_sem);
@@ -149,6 +184,8 @@ bad_area:
 	 * us unable to handle the page fault gracefully.
 	 */
 out_of_memory:
+	printk("%s: out_of_memory:\n", __func__);
+
 	up_read(&mm->mmap_sem);
 #if 0
 	if (is_global_init(current)) {
@@ -240,8 +277,8 @@ bad_page_fault(struct pt_regs *regs, unsigned long address, int sig)
 	/* Are we prepared to handle this kernel fault?  */
 	if ((entry = search_exception_tables(regs->pc)) != NULL) {
 #ifdef DEBUG_PAGE_FAULT
-		printk(KERN_DEBUG "%s: Exception at pc=%#010lx (%lx)\n",
-				current->comm, regs->pc, entry->fixup);
+		dprintf(KERN_DEBUG "Fixup Enabled Exception for current->comm:'%s'at pc:%#010lx entry:%p->fixup:0x%lx)\n",
+				current->comm, regs->pc, entry, entry->fixup);
 #endif
 		current->thread.bad_uaddr = address;
 		regs->pc = entry->fixup;
@@ -299,4 +336,24 @@ bad_page_fault(struct pt_regs *regs, unsigned long address, int sig)
 	die("Oops", regs, sig);
 	do_exit(sig);
 }
+
+#ifdef CONFIG_DEBUG_PAGEALLOC
+/* 
+ * FROM: avt32/mm/fault.c:
+ *
+ * This functionality is currently not possible to implement because
+ * we're using segmentation to ensure a fixed mapping of the kernel
+ * virtual address space.
+ *
+ * It would be possible to implement this, but it would require us to
+ * disable segmentation at startup and load the kernel mappings into
+ * the TLB like any other pages. There will be lots of trickery to
+ * avoid recursive invocation of the TLB miss handler, though...
+ */
+void kernel_map_pages(struct page *page, int numpages, int enable)
+{
+
+}
+EXPORT_SYMBOL(kernel_map_pages);
+#endif
 

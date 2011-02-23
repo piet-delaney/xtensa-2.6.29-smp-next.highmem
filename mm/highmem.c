@@ -67,6 +67,34 @@ pte_t * pkmap_page_table;
 
 static DECLARE_WAIT_QUEUE_HEAD(pkmap_map_wait);
 
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM)
+/* 
+ * ARCH_NEEDS_KMAP_HIGH_GET assimulated from 2.6.37 kernel
+ * to allow a cleaner approach of getting a pages mapping;
+ * used by arm in their update_mmu_cache() which we will
+ * be trending to to get VIPT cache alias systems to work.
+ */
+
+/*
+ * Most architectures have no use for kmap_high_get(), so let's abstract
+ * the disabling of IRQ out of the locking in that case to save on a
+ * potential useless overhead.
+ */
+#ifdef ARCH_NEEDS_KMAP_HIGH_GET
+#define lock_kmap()             spin_lock_irq(&kmap_lock)
+#define unlock_kmap()           spin_unlock_irq(&kmap_lock)
+#define lock_kmap_any(flags)    spin_lock_irqsave(&kmap_lock, flags)
+#define unlock_kmap_any(flags)  spin_unlock_irqrestore(&kmap_lock, flags)
+#else
+#define lock_kmap()             spin_lock(&kmap_lock)
+#define unlock_kmap()           spin_unlock(&kmap_lock)
+#define lock_kmap_any(flags)    \
+		do { spin_lock(&kmap_lock); (void)(flags); } while (0)
+#define unlock_kmap_any(flags)  \
+		do { spin_unlock(&kmap_lock); (void)(flags); } while (0)
+#endif
+#endif
+
 static void flush_all_zero_pkmaps(void)
 {
 	int i;
@@ -195,6 +223,36 @@ void *kmap_high(struct page *page)
 }
 
 EXPORT_SYMBOL(kmap_high);
+
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM)
+#ifdef ARCH_NEEDS_KMAP_HIGH_GET
+
+/**
+ * kmap_high_get - pin a highmem page into memory
+ * @page: &struct page to pin
+ *
+ * Returns the page's current virtual memory address, or NULL if no mapping
+ * exists.  If and only if a non null address is returned then a
+ * matching call to kunmap_high() is necessary.
+ *
+ * This can be called from any context.
+ */
+void *kmap_high_get(struct page *page)
+{
+	unsigned long vaddr, flags;
+
+	lock_kmap_any(flags);
+	vaddr = (unsigned long)page_address(page);
+	if (vaddr) {
+		BUG_ON(pkmap_count[PKMAP_NR(vaddr)] < 1);
+		pkmap_count[PKMAP_NR(vaddr)]++;
+	}
+	unlock_kmap_any(flags);
+	return (void*) vaddr;
+}
+#endif
+#endif
+
 
 /**
  * kunmap_high - map a highmem page into memory

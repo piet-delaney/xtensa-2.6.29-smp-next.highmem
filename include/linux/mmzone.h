@@ -48,6 +48,45 @@
 
 extern int page_group_by_mobility_disabled;
 
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM)
+/*
+ * Current KERNEL_DEBUG test are much more stable with
+ * Page Block Migration disabled. If enabled this modified
+ * version allows breakpoints to be used and won't return
+ * a boguz migration type (which can make things a bit confusing).
+ */
+static inline int get_pageblock_migratetype(struct page *page)
+{
+	int migrate_type;
+
+	if (unlikely(page_group_by_mobility_disabled))
+		migrate_type = MIGRATE_UNMOVABLE;
+	else {
+		migrate_type =  get_pageblock_flags_group(page, PB_migrate, PB_migrate_end);
+
+		switch (migrate_type) {
+		case MIGRATE_UNMOVABLE: 
+			break;
+
+		case MIGRATE_RECLAIMABLE:
+			break;
+
+		case MIGRATE_MOVABLE:
+			break;
+
+		case MIGRATE_RESERVE:
+			break;
+
+		case MIGRATE_ISOLATE:
+			break;
+			
+		default:
+			panic(__func__);
+		}
+	}
+	return(migrate_type);
+}
+#else
 static inline int get_pageblock_migratetype(struct page *page)
 {
 	if (unlikely(page_group_by_mobility_disabled))
@@ -55,6 +94,9 @@ static inline int get_pageblock_migratetype(struct page *page)
 
 	return get_pageblock_flags_group(page, PB_migrate, PB_migrate_end);
 }
+
+#endif /* defined(CONFIG_ZTENSA) && defined(HIGHMEM) */
+
 
 struct free_area {
 	struct list_head	free_list[MIGRATE_TYPES];

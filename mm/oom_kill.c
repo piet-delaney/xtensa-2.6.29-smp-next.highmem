@@ -471,6 +471,10 @@ int try_set_zone_oom(struct zonelist *zonelist, gfp_t gfp_mask)
 	struct zone *zone;
 	int ret = 1;
 
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+	printk("%s:\n", __func__);
+#endif
+
 	spin_lock(&zone_scan_lock);
 	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
 		if (zone_is_oom_locked(zone)) {
@@ -553,6 +557,10 @@ void pagefault_out_of_memory(void)
 {
 	unsigned long freed = 0;
 
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+	printk("%s:\n", __func__);
+#endif
+
 	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
 	if (freed > 0)
 		/* Got some memory back in the last second. */
@@ -596,6 +604,10 @@ void out_of_memory(struct zonelist *zonelist, gfp_t gfp_mask, int order)
 {
 	unsigned long freed = 0;
 	enum oom_constraint constraint;
+
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+	printk("%s:\n", __func__);
+#endif
 
 	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
 	if (freed > 0)

@@ -395,7 +395,7 @@ int setup_profiling_timer(unsigned int multiplier)
 
 /* ------------------------------------------------------------------------- */
 
-#if defined(CONFIG_SMP)
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)
 /*
  * It's not clear yet how many of these cache and TLB flushes 
  * have to be implemented with Cross Calls.
@@ -422,7 +422,7 @@ void ipi_flush_cache_all(void)
 {
 	local_flush_cache_all();
 }
-#endif /* CONFIG_SMP */
+#endif /* CONFIG_SMP  && CONFIG_ARCH_HAS_SMP*/
 
 
 
@@ -437,12 +437,18 @@ void ipi_flush_tlb_page(const void *arg[])
 			     (unsigned long) arg[1]);
 }
 
+void ipi_flush_tlb_kernel_page(const void *arg[0])
+{
+	local_flush_tlb_kernel_page( (unsigned long) arg[0]);
+}
+
 void ipi_flush_tlb_range(const void *arg[])
 {
 	local_flush_tlb_range((struct vm_area_struct *) arg[0], 
 			      (unsigned long) arg[1], (unsigned long) arg[2]);
 }
 
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)
 void flush_tlb_all(void)
 {
 	on_each_cpu((void(*)(void*))local_flush_tlb_all, NULL, 1);
@@ -460,6 +466,13 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long addr)
 	on_each_cpu((void(*)(void*))ipi_flush_tlb_page, args, 1);
 }
 
+void flush_tlb_kernel_page(unsigned long addr)
+{
+	unsigned long args[] = { addr};
+
+	on_each_cpu((void(*)(void*))ipi_flush_tlb_kernel_page, args, 1);
+}
+
 void flush_tlb_range(struct vm_area_struct *vma, 
 		     unsigned long start, unsigned long end)
 {
@@ -475,7 +488,6 @@ void flush_icache_range(unsigned long start, unsigned long end)
 	on_each_cpu((void(*)(void*))ipi_flush_icache_range, args, 1);
 }
 
-#ifdef CONFIG_SMP
 void flush_cache_page(struct vm_area_struct *vma, 
 		     unsigned long address, unsigned long pfn)
 {
@@ -498,7 +510,7 @@ void flush_cache_all()
 
 	on_each_cpu((void(*)(void*))ipi_flush_cache_all, args, 1);
 }
-#endif /* CONFIG_SMP */
+#endif /* CONFIG_SMP  && && CONFIG_ARCH_HAS_SMP */
 
 /* ------------------------------------------------------------------------- */
 

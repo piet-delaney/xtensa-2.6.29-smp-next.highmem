@@ -199,7 +199,11 @@ struct mm_struct {
 	unsigned long task_size;		/* size of task vm space */
 	unsigned long cached_hole_size; 	/* if non-zero, the largest hole below free_area_cache */
 	unsigned long free_area_cache;		/* first hole of size cached_hole_size or larger */
+#if 0 && defined(CONFIG_XTENSA) && defined(CONFIG_DEBUG_KERNEL)
+	pmd_table_t *pgd;
+#else
 	pgd_t * pgd;
+#endif
 	atomic_t mm_users;			/* How many users with user space? */
 	atomic_t mm_count;			/* How many references to "struct mm_struct" (users count as 1) */
 	int map_count;				/* number of VMAs */

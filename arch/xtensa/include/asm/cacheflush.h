@@ -45,6 +45,8 @@
  * __invalidate_icache_page_alias(vaddr,paddr)
  */
 
+#define PG_dcache_dirty PG_arch_1
+
 extern void __invalidate_dcache_all(void);
 extern void __invalidate_icache_all(void);
 extern void __invalidate_dcache_page(unsigned long);
@@ -103,9 +105,9 @@ static inline void __invalidate_icache_page_alias(unsigned long virt,
 # define cache_is_vipt_nonaliasing()     1
 #endif
 
-#if defined(DCACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP)
+#if defined(DCACHE_ALIASING_POSSIBLE) || (defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP))
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP) defined(CONFIG_SMP)
 extern void flush_cache_all(void);
 #else
 #define flush_cache_all local_flush_cache_all
@@ -129,7 +131,7 @@ extern void flush_dcache_page(struct page*);
 #define flush_dcache_page(page)		do { } while (0)
 #endif
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)
 extern void flush_cache_range(struct vm_area_struct*, ulong, ulong);
 extern void flush_cache_page(struct vm_area_struct*, unsigned long, unsigned long);
 #else
@@ -155,7 +157,7 @@ static inline void flush_anon_page(struct vm_area_struct *vma,
 		__flush_anon_page(vma, page, vmaddr);
 }
 
-#else /* DCACHE_ALIASING_POSSIBLE && !DEFINED_SMP */
+#else /* DCACHE_ALIASING_POSSIBLE && !( (defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)) ) */
 
 
 #define local_flush_cache_all()				do { } while (0)
@@ -183,7 +185,7 @@ static inline void flush_anon_page(struct vm_area_struct *vma,
 		__invalidate_icache_range(start,(end) - (start));	\
 	} while (0)
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)
 extern void flush_icache_range(unsigned long start, unsigned long end);
 #else
 /* REMIND-FIXME: Needed for KGDB */

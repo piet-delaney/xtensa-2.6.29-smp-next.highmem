@@ -209,6 +209,7 @@ def dcacheshow
 	printf ": "
 	#  Display cache words:
 	#  Need to convert paddr to vaddr, if we can.  Right now just hardcode MMU case:
+	#  EXTENEDED_MEMORY-REMIND - need to update.
 	if $fullmmu
 	  if $paddr < 0x08000000
 	    #  KSEG area:

@@ -81,7 +81,7 @@ int config_ignore_PG_arch_1 = 0;
  *
  */
 
-#if defined(DCACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP)
+#if defined(DCACHE_ALIASING_POSSIBLE) || (defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP))
 
 /*
  * Any time the kernel writes to a user page cache page, or it is about to
@@ -186,7 +186,7 @@ void __flush_anon_page(struct vm_area_struct *vma, struct page *page, unsigned l
 	__flush_invalidate_dcache_page((long)page_address(page));
 }
 
-#if defined(DCACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP)
+#if defined(DCACHE_ALIASING_POSSIBLE) || (defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP))
 /*
  * For now, flush the whole cache on the local CPU. FIXME??
  */
@@ -215,7 +215,7 @@ void local_flush_cache_range(struct vm_area_struct* vma,
  * alias versions of the cache flush functions.
  *
  * This is called when changing a pte, the pte will be flushed by
- * update_pte(). Here we make sure the data currently mapped by
+ * set_pte(). Here we make sure the data currently mapped by
  * the pte is flushed and invalidated prior to changeing the pte.
  *
  * Often the user_address will not yet be mapped, and we can't
@@ -246,24 +246,45 @@ void local_flush_cache_page(struct vm_area_struct* vma, unsigned long user_addre
 
 #endif /* defined(DCACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP) */
 
-
 void
 update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 {
 	unsigned long pfn = pte_pfn(pte);
 	struct page *page;
-	unsigned long paddr;
+	unsigned long page_vaddr;
+	void *vaddr;
+	int icache_page_flushed = 0;
+	int need_to_kunmap_atomic = 0;
+	int need_to_kunmap = 0;
+	int highmem_addr = 0;
 
-	if (!pfn_valid(pfn))
-		return;
-
-	page = pfn_to_page(pfn);
-	paddr = (unsigned long) page_address(page);
-
-	/* Invalidate old entry in TLBs */
-
+	/* 
+ 	 * Invalidate old or bogus entry in TLBs.  If a pte is invalid, Ex: PTE_NONE, and
+ 	 * it's accesses the invalid pte is loaded  into the TLB. After mapping the page
+ 	 * this is called and we here remove the bogus entry from the TLB.
+ 	 */
 	invalidate_itlb_mapping(addr);
 	invalidate_dtlb_mapping(addr);
+
+	BUG_ON(!pfn_valid(pfn));
+
+	page = pfn_to_page(pfn);
+
+	 if (PageHighMem(page)) {
+		highmem_addr = 1;
+		vaddr =  kmap_high_get(page);
+		if (vaddr == NULL) {
+			vaddr = kmap_atomic(page, KM_TLB_CACHE_FLUSH);
+			need_to_kunmap_atomic = 1;
+		} else {
+			need_to_kunmap = 1;
+		}
+	} else {
+		/* Just a normal non-HIGHMEM address */
+		vaddr = page_address(page);
+	}
+	page_vaddr = (unsigned long) vaddr;
+	BUG_ON(page_vaddr == 0);
 
 #if defined(DCACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP)
 
@@ -272,7 +293,7 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 		unsigned long vaddr = TLBTEMP_BASE_1 + (addr & DCACHE_ALIAS_MASK);
 		unsigned long phys = page_to_phys(page);
 
-		__flush_invalidate_dcache_page(paddr);
+		__flush_invalidate_dcache_page(page_vaddr);
 
 		__flush_invalidate_dcache_page_alias(vaddr, phys);
 		__invalidate_icache_page_alias(vaddr, phys);
@@ -282,21 +303,25 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 #else
 	if (!PageReserved(page) && (config_ignore_PG_arch_1 || !test_bit(PG_arch_1, &page->flags))
 	    && (vma->vm_flags & VM_EXEC) != 0) {
-		__flush_dcache_page(paddr);
-		__invalidate_icache_page(paddr);
+		__flush_dcache_page(page_vaddr);
+		 if ( !highmem_addr && vma->vm_flags & VM_EXEC) {
+			__invalidate_icache_page(page_vaddr);
+			icache_page_flushed = 1;
+		}
 		set_bit(PG_arch_1, &page->flags);
 	}
 #endif
 
-	if (vma->vm_flags & VM_EXEC) {
-		__invalidate_icache_page(paddr);
-	}
+	if (!icache_page_flushed && !highmem_addr && vma->vm_flags & VM_EXEC) 
+		__invalidate_icache_page(page_vaddr);
 
-/* FIXME: this function likely calls __invalidate_icache_page() twice
- * on the same address if the core is not cache aliasing.  There is an
- * optimization opportunity here.
- */
-
+	/*
+	 * Drop Highmem mapings if we had to use one.
+	 */ 
+	if (need_to_kunmap_atomic) 
+		 kunmap_atomic(vaddr, KM_TLB_CACHE_FLUSH);
+	else if (need_to_kunmap)
+		 kunmap_high(page);
 }
 
 /*

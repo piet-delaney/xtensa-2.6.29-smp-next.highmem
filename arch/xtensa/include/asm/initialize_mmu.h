@@ -307,7 +307,7 @@
 	wdtlb	a4, a5
 	witlb	a4, a5
 
-#if defined(CONFIG_EXTENDED_MEMORY) || defined(CONFIG_HIGHMEM)
+#if defined(CONFIG_EXTENDED_MEMORY)
 	movi	a5, 0xcc000004			// 64M page at 0xcc000000 (way 4)
 	movi	a4, 0x08000000 + CA_WRITEBACK	// paddr 0x08000000 (128MB), writeback
 	wdtlb	a4, a5

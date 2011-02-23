@@ -28,6 +28,7 @@ enum km_type {
   KM_L1_CACHE,
   KM_L2_CACHE,
   KM_KDB,
+  KM_TLB_CACHE_FLUSH,
   KM_TYPE_NR
 };
 

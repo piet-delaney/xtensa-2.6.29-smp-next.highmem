@@ -55,6 +55,8 @@ $(obj)/vmlinux.lds: $(src)/vmlinux.lds.S FORCE
 obj-$(CONFIG_KGDB) += kgdb.o
 obj-$(CONFIG_PCI) += pci.o
 obj-$(CONFIG_MODULES) += xtensa_ksyms.o module.o
-obj-$(CONFIG_SMP) += smp.o mxhead.o
+obj-$(CONFIG_SMP) += smp.o
+obj-$(CONFIG_ARCH_HAS_SMP) += mxhead.o
+
 
 

@@ -338,8 +338,12 @@ void __init secondary_irq_init(void)
 
 int __init wakeup_secondary_cpu(unsigned int cpu, struct task_struct *ts)
 {
+#ifdef  CONFIG_ARCH_HAS_SMP
 	set_er(get_er(MPSCORE) & ~ (1 << cpu), MPSCORE);
 	printk("cpu %d %lx\n", cpu, get_er(0x200));
+#else
+	printk("%s: NOTE: running SMP without MX/SMP hardware\n", __func__);
+#endif
 	return 0;
 }
 

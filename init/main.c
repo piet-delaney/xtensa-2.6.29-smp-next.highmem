@@ -122,8 +122,12 @@ static char *execute_command;
 static char *ramdisk_execute_command;
 
 #ifdef CONFIG_SMP
-/* Setup configured maximum number of CPUs to activate */
-unsigned int __initdata setup_max_cpus = NR_CPUS;
+/* 
+ * Setup configured maximum number of CPUs to activate.
+ * REMIND: Why does setup_max_cpus seem to be refered by 
+ *         non-__initdata function __delay().
+ */
+unsigned int /* __initdata */  setup_max_cpus = NR_CPUS;
 
 /*
  * Setup routine for controlling SMP activation

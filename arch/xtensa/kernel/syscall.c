@@ -83,6 +83,9 @@ asmlinkage long xtensa_mmap2(unsigned long addr, unsigned long len,
 	 *
 	 * The addition of arch_get_unmapped_area() does
 	 * NOT appear to removed the need for this workaround.
+	 *
+	 * This has the unfortunate current consequnce of limiting 
+	 * user space malloc() calls to 29 MBytes.
 	 */
 	if (len > 30720000) {
 		/*

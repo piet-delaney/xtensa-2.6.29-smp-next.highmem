@@ -2468,7 +2468,21 @@ void build_all_zonelists(void)
 	if (vm_total_pages < (pageblock_nr_pages * MIGRATE_TYPES))
 		page_group_by_mobility_disabled = 1;
 	else
+#if defined(CONFIG_XTENSA) && defined(CONFIG_HIGHMEM)
+		/* 
+  		 * Test have shown that Page Group Mobility has problems
+  		 * when used with HIGHMEM. Perhaps Mel's patch:
+  		 *
+  		 * 	[PATCH 6/12] Add a configure option to group pages by mobility
+  		 *
+  		 * should be put back in as a cleaner way of disableing Page Group Mobility:
+  		 *
+  		 * 	http://lkml.indiana.edu/hypermail/linux/kernel/0703.0/0074.html
+  		 */
+		page_group_by_mobility_disabled = 1;
+#else
 		page_group_by_mobility_disabled = 0;
+#endif
 
 	printk("Built %i zonelists in %s order, mobility grouping %s.  "
 		"Total pages: %ld\n",

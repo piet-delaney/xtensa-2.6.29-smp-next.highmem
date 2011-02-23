@@ -7,6 +7,28 @@ menu "Kernel hacking"
 
 source "lib/Kconfig.debug"
 
+config EARLY_PRINTK
+	bool "Early printk"
+	default n
+	help
+	  Write kernel log output directly into the VGA buffer or to a serial
+	  port. STILL NEEDS TO BE IMPLEMENTED.
+
+	  This is useful for kernel debugging when your machine crashes very
+	  early before the console code is initialized. For normal operation
+	  it is not recommended because it looks ugly and doesn't cooperate
+	  with klogd/syslogd or the X server. You should normally N here,
+	  unless you want to debug such a crash.
+
+config DEBUG_PAGEALLOC
+	bool "Debug page memory allocations"
+	depends on DEBUG_KERNEL
+	help
+	  Unmap pages from the kernel linear mapping after free_pages().
+	  This results in a large slowdown, but helps to find certain types
+	  of memory corruptions.
+
+
 config KGDB_BREAKS_WITH_ILLEGAL_INSTRUCTION
 	bool "Use and Illegal Instruction instead of BREAK instruction."
 	depends on  KGDB
@@ -101,7 +123,7 @@ config 8KSTACKS
 	  Debugging; though it often works fine.
 
 config 16KSTACKS
-	bool "Use 16K for kernel stacks, Best if Optimized for Debugging"
+	bool "Use 16K for kernel stacks, Necessary if Optimized for Debugging"
 	depends on EXPERIMENTAL || DEBUG_KERNEL
 	help
 	  If you say Y here the kernel will use a 16Kb stack size for the
@@ -110,7 +132,10 @@ config 16KSTACKS
 
 	  This is experimental code.
 
-	  Recommended when compiling the kernel with CC_OPTIMIZE_FOR_DEBUGGING.
+	  Highly recommended when compiling the kernel with CC_OPTIMIZE_FOR_DEBUGGING.
+	  I'm looking here at a 86 frame deep normal stack going from 0xd781a000 to 0xd7818140
+	  which is 7.7K. Don't waste you time building a -O0 kernel and try using a NFS
+	  mounted root filesystems.
 
 	  If in doubt, say "N".
 endchoice

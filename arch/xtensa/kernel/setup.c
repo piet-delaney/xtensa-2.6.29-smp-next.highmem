@@ -79,10 +79,17 @@ extern unsigned long loops_per_jiffy;
 static char __initdata command_line[COMMAND_LINE_SIZE];
 
 #ifdef CONFIG_CMDLINE_BOOL
-static  __initdata char default_command_line[COMMAND_LINE_SIZE] __initdata = CONFIG_CMDLINE;
+/*
+ * REMIND: What non-__initdata function is refering to this?
+ */
+static  /* __initdata */ char default_command_line[COMMAND_LINE_SIZE] __initdata = CONFIG_CMDLINE;
 #endif
 
-sysmem_info_t __initdata sysmem;
+/* 
+ * REMIND:
+ * Why does __invalidate_dcache_all() appear to reference sysmem?
+ */
+sysmem_info_t /* __initdata */ sysmem;
 
 #ifdef CONFIG_BLK_DEV_INITRD
 int initrd_is_mapped;
@@ -267,6 +274,11 @@ static int __init parse_bootparam(const bp_tag_t *phys_tag)
  */
 void __init_refok init_arch(bp_tag_t *bp_start)
 {
+
+#ifdef CONFIG_DEBUG_KERNEL
+	default_message_loglevel = 7;
+	default_console_loglevel = 7;
+#endif	
 
 #if 0
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -537,8 +549,10 @@ void __init setup_arch(char **cmdline_p)
 	smp_init_cpus();
 #endif
 
-	paging_init();
+	/* Set up zones before page_table fixed mappings */
 	zones_init();
+
+	paging_init();
 
 #ifdef CONFIG_VT
 # if defined(CONFIG_VGA_CONSOLE)

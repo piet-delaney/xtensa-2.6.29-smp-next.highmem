@@ -38,7 +38,11 @@
  * Define this to disable debugging in user space
  * and allow single stepping with xt-gdb of this code.
  */
-#undef DEBUG_ENTRY_CODE
+#if 1 || defined(CONFIG_HIGHMEM)
+# define DEBUG_ENTRY_CODE 1
+#else
+# undef DEBUG_ENTRY_CODE
+#endif
 
 /*
  * Macro to find first bit set in WINDOWBASE from the left + 1
@@ -1779,7 +1783,8 @@ ENTRY(fast_second_level_miss_double_kernel)
  * exceptions share the same entry point and are handled identically.
  *
  * An old, less-efficient C version of this function used to exist.
- * We include it below, interleaved as comments, for reference.
+ * We include it below, interleaved as comments, for reference and
+ * try to keep in sync with the newer faster asm implementation.
  *
  * Entry condition:
  *
@@ -1817,72 +1822,113 @@ ENTRY(fast_second_level_miss)
 	 *	pmdval = *pmd;
 	 */
 
-	GET_CURRENT(a1,a2)
-	l32i	a0, a1, TASK_MM		# tsk->mm
-	beqz	a0, 9f
+	GET_CURRENT(a1,a2)		# $a1 = current; $a2:sp
+	l32i	a0, a1, TASK_MM		# $a0:mm = tsk->mm
+	beqz	a0, 9f			# if tsk->mm is NULL set $a0:mm = $a1:tsk->active_mm
 
 
 // FIXME no:
 /* We deliberately destroy a3 that holds the exception table. */
 
-8:	rsr	a3, EXCVADDR		# fault address
-	_PGD_OFFSET(a0, a3, a1)
-	l32i	a0, a0, 0		# read pmdval
-	beqz	a0, 2f
+8:	rsr	a3, EXCVADDR		# $a3 = fault address
+	_PGD_OFFSET(a0, a3, a1)		# $a0 = ($a0:mm->mm_pgd + (PGD_INDEX($a3:excvaddr) * 4)) = &pmd
+	l32i	a0, a0, 0		# $a0 = pmd; read pmd.val from base of page table
+	beqz	a0, 2f			# if $a0:pmd.val == 0, invalid PGD, use default exception handler...
+					# ... unless DCACHE_ALIASING_POSSIBLE and it's a TMPBASE temporary mapping.
 
 	/* Read ptevaddr and convert to top of page-table page.
 	 *
+	 * The conventional way to get the pte.val is something like this for other Archectures:
 	 * 	vpnval = read_ptevaddr_register() & PAGE_MASK;
 	 * 	vpnval += DTLB_WAY_PGTABLE;
-	 *	pteval = mk_pte (virt_to_page(pmd_val(pmdval)), PAGE_KERNEL);
+	 *	pteval = mk_pte(virt_to_page(pmd_val(pmdval)), PAGE_KERNEL);	// NOTE: Our pmd.val has been changed to be Virtual!
 	 *	write_dtlb_entry (pteval, vpnval);
 	 *
-	 * The messy computation for 'pteval' above really simplifies
-	 * into the following:
+	 * The messy computation for 'pteval' above has been simplified into the following:
 	 *
-	 * pteval = ((pmdval - PAGE_OFFSET) & PAGE_MASK) | PAGE_DIRECTORY
+	 *     pteval = ((pmd.val - PAGE_OFFSET) & PAGE_MASK) | PAGE_DIRECTORY
+	 *
+	 * NOTE: This means that the page tables need to be maintained with a virtual VPN in the pmd.
+	 *       This is totally unconventional, decreases VM portability, and might be involved in
+	 *       our current need to use cross calls with TLB flushes.
+	 *
+ 	 * With EXTENDED_MEMORY the above simplified calculation has been extended to:
+	 *
+	 *     pte_offset = ((pmd.val - XCHAL_KSEG_CACHED_VADDR)
+	 *     pte_ext_mem_offset = pte_offset + KSEG_SIZE + EXT_MEM_SIZE
+	 *     if (pte_ext_mem_offset < 0) {
+	 *		pte_offset = pte_ext_mem_offset;
+	 *     }
+	 *     pteval = (pte_offset & PAGE_MASK)  | PAGE_DIRECTORY
 	 */
 
 #ifdef CONFIG_EXTENDED_MEMORY
-	/* Extended memory starts at KSEG_MEM_CACHED_START - EXT_MEM_SIZE
+	/*
+	 * Convert $a0:ppd.val Virtual Addressed VPN to a Physically Addressed PPN
+	 * to be used in TLB entry via $a0.
+	 *
+	 * Extended memory starts at KSEG_MEM_CACHED_START - EXT_MEM_SIZE
 	 * virtually, but KSEG_MEM_SIZE physically.
 	 */
-	movi	a1, XCHAL_KSEG_CACHED_VADDR
-	sub	a0, a0, a1
-	movi	a1, XCHAL_KSEG_SIZE + EXT_MEM_SIZE
-	add	a1, a0, a1
-	movltz	a0, a1, a0
+	movi	a1, XCHAL_KSEG_CACHED_VADDR		# $a1 = XCHAL_KSEG_CACHED_VADDR (Typically 0xd0000000)
+	sub	a0, a0, a1				# $a0:ppn = ($a0:pmd.vpn - $a1:XCHAL_KSEG_CACHED_VADDR)
+	movi	a1, XCHAL_KSEG_SIZE + EXT_MEM_SIZE	# $a1 = KSEG_SIZE + EXT_MEM_SIZE
+	add	a1, a0, a1				# $a1:ppn = a0:(pmdval - XCHAL_KSEG_CACHED_VADDR) + a1:(KSEG_SIZE + EXT_MEM_SIZE)
+	movltz	a0, a1, a0				# if ($a1 < 0) $a0 = $a1
 #else
-	movi	a1, -PAGE_OFFSET
-	add	a0, a0, a1		# pmdval - PAGE_OFFSET
+	movi	a1, -PAGE_OFFSET			# a1 = -PAGE_OFFSET             (0xd0000000)
+	add	a0, a0, a1				# a0:ppn = (a0:pmd.vpn - $a1:PAGE_OFFSET)
 #endif
 
-	extui	a1, a0, 0, PAGE_SHIFT	# ... & PAGE_MASK
-	xor	a0, a0, a1
+	extui	a1, a0, 0, PAGE_SHIFT			# $a1 = (a0 >> 0) & (PAGE_MASK:(1<<PAGE_SHIFT))
+	xor	a0, a0, a1				# $a0 = $a0 ^ $a1
 
 	movi	a1, _PAGE_DIRECTORY
-	or	a0, a0, a1		# ... | PAGE_DIRECTORY
+	or	a0, a0, a1				# $a0:pmdval |= a1:PAGE_DIRECTORY
+							# This $a0:(ppn+attributes) will be used about 20 lines below to load the TLB 
 
 	/*
+	 * Calculation of 20 bit VPN:
+	 *
+	 * We start with the $PTEVADDR which has the virtual address of the the page table, PGTABLE_START, in the upper 
+	 * 10 Most Significant Bits (MSB) and the upper 22 bits of the $excvaddr in the lower 22 bits of the $PTEVADDR:
+	 *
+	 *    31  30  29  28  27  26  25  24  23  22  21  20  19  18  17  16  15  14  13  12  11  10   9   8   7   6   5   4   3   2   1  0
+	 *   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 *   +             P T B A S E               |                          E X C V A D D R . M S B                                      |
+	 *   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 *   |       8       |       0       |       0       |       0       |       0       |      0        |       8       |       0       |
+	 *   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 *
+	 * The PTBASE bits of $PTEVADDR were set to PGTABLE_START:0x80000000 when we initialized the MMU.
+	 *
+	 * We will use the MSB of the $excvaddr to calculate the TLB-way to use, and then shiht the PTBASE (bits 31...22),
+	 * right 12 and then left 12, to cone up with the 20 bit VPN loaded into the TLB entry.
+	 *
 	 * We utilize all three wired-ways (7-9) to hold pmd translations.
 	 * Memory regions are mapped to the DTLBs according to bits 28 and 29.
 	 * This allows to map the three most common regions to three different
 	 * DTLBs:
-	 *  0,1 -> way 7	program (0040.0000) and virtual (c000.0000)
-	 *  2   -> way 8	shared libaries (2000.0000)
-	 *  3   -> way 0	stack (3000.0000)
+	 *  0,1    -> way 7	program (0040.0000) and {kernel virtual (c000.0000), including HighMEM page tables}
+	 *  2      -> way 8	shared libaries (2000.0000)
+	 *  3      -> way 9	user stack (3000.0000)
+	 *                       			
+	 *								    Way Offset Calculation 
+	 *                                                   		  Value of excvaddr bits 28,29 
+	 *                                                   		    shifted to bits 1,0
+	 *                                                   		  -----------------------------
 	 */
+	extui	a3, a3, 28, 2		# $a3 = (excvaddr>> 28) & 3 		          0,1,2,3
+	rsr	a1, PTEVADDR		# $a1 = $ptevaddr:(PTBASE:0X800 | VPN.bits of miss) 
+	addx2	a3, a3, a3		# $a3 = ($a3 * 2) + $a3			          0,3,6,9	  Multiplied by 3
+	srli	a1, a1, PAGE_SHIFT	# $a1:(VPN>>12) = $a1:$pvevaddr >> PAGE_SHIFT:12
+	extui	a3, a3, 2, 2		# $a3:way_offset = ($a3 >> 2) & 3	way_offset:0,0,1,2
+	slli	a1, a1, PAGE_SHIFT	# $a1 = $a1:($VPN>>12) << PAGE_SHIGT:12
+	addi	a3, a3, DTLB_WAY_PGD	# $a3:way = DTLB_WAY_PGD:7 + way_offset
+	add	a1, a1, a3		# $a1:VPN = $a1:VPN + $a3:way
 
-	extui	a3, a3, 28, 2		# addr. bit 28 and 29	0,1,2,3
-	rsr	a1, PTEVADDR
-	addx2	a3, a3, a3		# ->			0,3,6,9
-	srli	a1, a1, PAGE_SHIFT
-	extui	a3, a3, 2, 2		# ->			0,0,1,2
-	slli	a1, a1, PAGE_SHIFT	# ptevaddr & PAGE_MASK
-	addi	a3, a3, DTLB_WAY_PGD
-	add	a1, a1, a3		# ... + way_number
-
-3:	wdtlb	a0, a1
+3:	wdtlb	a0, a1			# Wite Data TLB Entry; a0:(PPN+Attributes), a1:VPN+way
+					# See ISA Sec 4.6.5.5: Formats for Writing MMU Option TLB Entries.
 	dsync
 
 	/* Exit critical section. */

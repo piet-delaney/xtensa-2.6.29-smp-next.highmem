@@ -15,6 +15,10 @@
 
 #include <linux/highmem.h>
 
+#if defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+#include <asm/tlbflush.h>
+#endif
+
 /*
  * Allocating and freeing a pmd is trivial: the 1-entry pmd is
  * inside the pgd, so has no extra memory associated with it.
@@ -29,11 +33,17 @@
 static inline pgd_t*
 pgd_alloc(struct mm_struct *mm)
 {
+#if defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+	flush_tlb_mm(mm);
+#endif
 	return (pgd_t*) __get_free_pages(GFP_KERNEL | __GFP_ZERO, PGD_ORDER);
 }
 
 static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
+#if defined(CONFIG_HIGHMEM) && defined(CONFIG_DEBUG_KERNEL)
+	flush_tlb_mm(mm);
+#endif
 	free_page((unsigned long)pgd);
 }
 
@@ -44,7 +54,11 @@ extern struct kmem_cache *pgtable_cache;
 static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm, 
 					 unsigned long address)
 {
-	return kmem_cache_alloc(pgtable_cache, GFP_KERNEL|__GFP_REPEAT);
+	pte_t *ptep;
+
+	ptep = kmem_cache_alloc(pgtable_cache, GFP_KERNEL|__GFP_REPEAT);
+	
+	return(ptep);
 }
 
 static inline pgtable_t pte_alloc_one(struct mm_struct *mm,

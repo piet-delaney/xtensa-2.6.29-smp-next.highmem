@@ -11,7 +11,7 @@
 #ifndef _XTENSA_MXREGS_H
 #define _XTENSA_MXREGS_H
 
-#ifdef CONFIG_ARCH_HAS_SMP
+#if defined(CONFIG_ARCH_HAS_SMP) || defined(CONFIG_SMP)
 
 /*
  * RER/WER at, as	Read/write external register
@@ -47,7 +47,7 @@
 
 #ifndef __ASSEMBLY__
 
-
+#ifdef CONFIG_ARCH_HAS_SMP
 static inline void set_er (unsigned long value, unsigned long addr)
 {
         asm volatile ("wer %0, %1" : : "a" (value), "a" (addr) : "memory");
@@ -60,9 +60,21 @@ static inline unsigned long get_er (unsigned long addr)
         return value;
 }
 
+#else /* !CONFIG_ARCH_HAS_SMP */
+
+static inline void set_er (unsigned long value, unsigned long addr) 
+{
+}
+static inline unsigned long get_er (unsigned long addr) 
+{
+	return(0L);
+}
+#endif
+
+
 #endif /* __ASSEMBLY__ */
 
-#endif /* CONFIG_ARCH_HAS_SMP */
+#endif /* defined(CONFIG_ARCH_HAS_SMP) || defined(CONFIG_SMP) */
 
 #endif /* _XTENSA_MSREGS_H */
 

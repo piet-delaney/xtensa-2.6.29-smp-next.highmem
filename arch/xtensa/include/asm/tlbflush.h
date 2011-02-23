@@ -16,7 +16,7 @@
 #include <linux/stringify.h>
 #include <asm/processor.h>
 
-#define DTLB_WAY_PGD	7
+#define DTLB_WAY_PGD	7	/* Base of TLB's used to load TLB entries from the Page Global Directory */
 
 #define ITLB_ARF_WAYS	4
 #define DTLB_ARF_WAYS	4
@@ -30,24 +30,27 @@
  *
  *  - flush_tlb_all() flushes all processes TLB entries
  *  - flush_tlb_mm(mm) flushes the specified mm context TLB entries
- *  - flush_tlb_page(mm, vmaddr) flushes a single page
- *  - flush_tlb_range(mm, start, end) flushes a range of pages
+ *  - flush_tlb_page(mm, vmaddr) flushes a single TLB entry for a page in the mm context.
+ *  - flush_tlb_kernel_page(start) flushes all TLB entries for a kernel page; independent of context/ASID.
+ *  - flush_tlb_range(mm, start, end) flushes a range of pages.
+ *
+ *  It currenty appears that some ARCHs, like MIPS and XTENSA, need to do cross calls 
+ *  to flush the TLB entries in other processors; necessity is still being investigated.
  */
 
 extern void local_flush_tlb_all(void);
 extern void local_flush_tlb_mm(struct mm_struct *mm);
-extern void local_flush_tlb_page(struct vm_area_struct *vma,
-        unsigned long page);
-extern void local_flush_tlb_range(struct vm_area_struct *vma,
-        unsigned long start, unsigned long end);
+extern void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page);
+extern void local_flush_tlb_kernel_page(unsigned long page);
+extern void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start, unsigned long end);
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP)
 
 extern void flush_tlb_all(void);
 extern void flush_tlb_mm(struct mm_struct *);
 extern void flush_tlb_page(struct vm_area_struct *, unsigned long);
-extern void flush_tlb_range(struct vm_area_struct *, unsigned long,
-        unsigned long);
+extern void flush_tlb_kernel_page(unsigned long);
+extern void flush_tlb_range(struct vm_area_struct *, unsigned long, unsigned long);
 
 static inline void flush_tlb_kernel_range(unsigned long start,
 					  unsigned long end)
@@ -55,11 +58,12 @@ static inline void flush_tlb_kernel_range(unsigned long start,
 	flush_tlb_all();
 }
 
-#else /* !CONFIG_SMP */
+#else /* !(CONFIG_SMP && _ARCH_HAS_SMP) */
 
 #define flush_tlb_all()                   local_flush_tlb_all()
 #define flush_tlb_mm(mm)                  local_flush_tlb_mm(mm)
 #define flush_tlb_page(vma, page)         local_flush_tlb_page(vma, page)
+#define flush_tlb_kernel_page(page)    	  local_flush_tlb_kernel_page(page)
 #define flush_tlb_range(vma, vmaddr, end) local_flush_tlb_range(vma, vmaddr, end)
 #define flush_tlb_kernel_range(start,end) local_flush_tlb_all()
 
@@ -167,6 +171,30 @@ static inline void invalidate_dtlb_mapping (unsigned address)
 		invalidate_dtlb_entry(tlb_entry);
 }
 
+/*
+ * Flushes all of the Data TLB entries that match the provided kernel 
+ * virtual address.
+ *
+ * Returns the number to TLB entries that TLB probes have discovered.
+ * Each of these TLB entries is invalidated.
+ *
+ * We should only need to clear one TLB entry and it should have
+ * an ASID=1 (KERNEL). Multiple TLB entries with the same address
+ * with ASID=1 can't exist.
+ *
+ * REMIND: Simplify after stable.
+ */
+static inline int invalidate_all_dtlb_mappings(unsigned address)
+{
+	unsigned long tlb_entry;
+	int count = 0;
+
+	while (((tlb_entry = dtlb_probe(address)) & (1 << DTLB_HIT_BIT)) != 0) {
+		invalidate_dtlb_entry(tlb_entry);
+		count++;
+	}
+	return(count);
+}
 #define check_pgt_cache()	do { } while (0)
 
 

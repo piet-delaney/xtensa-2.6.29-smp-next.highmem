@@ -334,7 +334,7 @@ void warn_slowpath(const char *file, int line, const char *fmt, ...)
 	sprint_symbol(function, caller);
 
 	printk(KERN_WARNING "------------[ cut here ]------------\n");
-	printk(KERN_WARNING "WARNING: at %s:%d %s()\n", file,
+	printk(KERN_WARNING "%s: WARNING: at %s:%d %s()\n", __func__, file,
 		line, function);
 	board = dmi_get_system_info(DMI_PRODUCT_NAME);
 	if (board)
@@ -350,6 +350,9 @@ void warn_slowpath(const char *file, int line, const char *fmt, ...)
 	dump_stack();
 	print_oops_end_marker();
 	add_taint(TAINT_WARN);
+#if defined(CONFIG_XTENSA) && defined(CONFIG_DEBUG_KERNEL)
+	panic(__func__);
+#endif
 }
 EXPORT_SYMBOL(warn_slowpath);
 #endif

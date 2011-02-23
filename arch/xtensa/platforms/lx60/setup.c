@@ -125,15 +125,24 @@ struct platform_device lx60_oeth_platform_device = {
  * possability and work down to the smallest.
  */
 struct board_info_s {
-		unsigned int 	 himem;
-		enum 		 xtensa_board board;
-		char 		*board_name;
+	unsigned int 	 himem;
+	enum 		 xtensa_board board;
+	char 		*board_name;
 };
 
+/*
+ * With HIGHMEM xocd and the LX200 board need to be reset when trying 384-MBytes.
+ * DOSR comming back with 0 consistantly with anything over 256; even 257.  With
+ * 257 create_kthread() returns with create->result == NULL and passed to the 
+ * scheduler as a pointer to the init process.
+ *
+ * HIGHMEM-REMIND: Need to map tlb and probe for physical memory.
+ */
+#if defined(CONFIG_HIGHMEM) || defined(CONFIG_EXTENDED_MEMORY)
 #define N_BOARDS 4
-struct board_info_s  board_info[N_BOARDS] = {
-	{ .himem = (unsigned int) ((180 * 1024 * 1024) - 1),
-	  .board = AVNET_LX200,
+struct board_info_s  board_info[N_BOARDS] = {			/* LX200           1st, 2nd, 3ed Memory Bank */
+	{ .himem = (unsigned int) ((256 * 1024 * 1024) - 1),	/* HIGHMEM-REMIND: 128, 256, 384             */
+	  .board = AVNET_LX200,					/*                 ok,  ok,  bad             */
 	  .board_name = "AVNET_LX200_EXT_MEM"
 	},
 	{ .himem = (unsigned int) ((96 * 1024 * 1024) - 1),
@@ -149,6 +158,23 @@ struct board_info_s  board_info[N_BOARDS] = {
 	  .board_name = "AVNET_LX110"
 	}
 };
+#else
+#define N_BOARDS 3
+struct board_info_s  board_info[N_BOARDS] = {
+	{ .himem = (unsigned int) ((96 * 1024 * 1024) - 1),
+	  .board = AVNET_LX200,
+	  .board_name = "AVNET_LX200"
+	},
+	{ .himem = (unsigned int) ((64 * 1024 * 1024) - 1),
+	  .board = AVNET_LX60,
+	  .board_name = "AVNET_LX60"
+	},
+	{ .himem = (unsigned int) ((48 * 1024 * 1024) - 1),
+	  .board = AVNET_LX110,
+	  .board_name = "AVNET_LX110"
+	}
+};
+#endif
 
 static int bus_errors = 0;
 
@@ -165,22 +191,24 @@ probe_exception_handler(struct pt_regs *regs, unsigned long exccause)
  * to do for them.
  */
 
-void platform_init(bp_tag_t *bootparams)
+void __init platform_init(bp_tag_t *bootparams)
 {
 	extern void trap_init(void);
 	extern void *trap_set_early_C_handler(int cause, void *handler);
 	extern void *trap_initialize_early_exc_table(void);
 	extern void trap_enable_early_exc_table(void);
+	struct board_info_s *bi;
+	void *saved_exception_hander_addr[64];
+	int cpu = 0;
+#ifndef CONFIG_HIGHMEM
 	volatile unsigned char *ptr;
 	volatile unsigned char saved_byte;
 	volatile unsigned char saved_byte_total;
-	struct board_info_s *bi;
-	void *saved_exception_hander_addr[64];
-	long pa;
 	int board;
-	int cpu = 0;
+	long pa;
+#endif
 
-#ifdef CONFIG_SMP
+#ifdef CONFIG_ARCH_HAS_SMP
 	/* 
  	 * Only the primary CPU needs to determine which Avnet board we are running on.
  	 * We assume with SMP that the PRID register is supported.
@@ -209,6 +237,13 @@ void platform_init(bp_tag_t *bootparams)
 	memset(&saved_exception_hander_addr[0], 0, sizeof(saved_exception_hander_addr));
 	trap_initialize_early_exc_table();	/* Set default exception handlers; including C (Default) handeler */
 
+#ifdef CONFIG_HIGHMEM
+	/* REMIND: Make a temp TLB entry to probing */
+	bi = &board_info[0];
+	platform_mem_size = bi->himem + 1;
+	platform_board = bi->board;
+	platform_board_name = bi->board_name;
+#else
 	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ERROR]      = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ERROR, probe_exception_handler);	 /* 03 */
 	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_DATA_ERROR] = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_DATA_ERROR, probe_exception_handler); /* 13 */
 	saved_exception_hander_addr[EXCCAUSE_LOAD_STORE_ADDR_ERROR] = trap_set_early_C_handler(EXCCAUSE_LOAD_STORE_ADDR_ERROR, probe_exception_handler); /* 15 */
@@ -264,6 +299,7 @@ void platform_init(bp_tag_t *bootparams)
 		platform_board = AVNET_UNKNOWN;
 		platform_board_name = "<<Unknown Avnet Board>> [FIXME]";
 	}
+#endif
 
 	/*
 	 * Initialize sysmem in our platform code.

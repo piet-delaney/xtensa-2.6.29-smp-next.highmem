@@ -1,0 +1,94 @@
+You likely need to compile your kernel with a larger stack if 
+you compile the kernel -O0. Here for example stack where I
+crashed do to the stack being too small when I compiled the
+kernel and forgot to increas the stack size in the Xtensa
+make menuconfig. I check the ends of the stack and the 
+differenceit was right at the default 8K stack size.
+
+Use 16K stacks when compiling -O0.
+
+				-piet
+
+Call Trace:                                                                    
+ [<d0151c93>] spin_bug+0xa7/0xac                                               
+ [<d0151f21>] debug_spin_unlock+0x5d/0x84                                      
+ [<d0151eba>] _raw_spin_unlock+0xa/0x14                                        
+ [<d022bf6d>] _spin_unlock+0xd/0x44                                            
+ [<d0007b04>] write_sequnlock+0x1c/0x20                                        
+ [<d0007c74>] timer_interrupt+0x78/0x94                                        
+ [<d004382e>] handle_IRQ_event+0x2e/0x78                                       
+ [<d0045169>] handle_edge_irq+0x119/0x170                                      
+ [<d0005007>] do_IRQ+0x8b/0x9c                                                 
+ [<d0007dd2>] do_interrupt+0x5e/0x74                                           
+ [<d000476d>] _kernel_exception+0x10f/0x135                                    
+ [<d0015e90>] vprintk+0x268/0x29c                                              
+ [<d0015ba5>] printk+0x2d/0x38                                                 
+ [<d0015103>] warn_slowpath+0x47/0xbc                                          
+ [<d001b2ce>] _local_bh_enable_ip+0x62/0xe8                                    
+ [<d001b3aa>] local_bh_enable_ip+0xa/0xc                                       
+ [<d022c100>] _spin_unlock_bh+0x3c/0x40                                        
+ [<d020f9d6>] rpc_wake_up_queued_task+0x22/0x24                                
+ [<d020aff5>] xprt_complete_rqst+0x8d/0x90                                     
+ [<d020ce06>] xs_udp_data_ready+0x156/0x180                                    
+ [<d018e8d0>] sock_queue_rcv_skb+0x94/0x9c                                     
+ [<d01e65bc>] __udp_queue_rcv_skb+0x20/0xb0                                    
+ [<d01e67b4>] udp_queue_rcv_skb+0x168/0x1c8                                    
+ [<d01e6bd4>] __udp4_lib_rcv+0xf0/0x278                                        
+ [<d01e7168>] udp_rcv+0x14/0x1c                                                
+ [<d01bbd1a>] ip_local_deliver_finish+0xe2/0x178                               
+ [<d01bbf05>] ip_local_deliver+0x35/0x40                                       
+ [<d01bc34c>] dst_input+0x10/0x18                                              
+ [<d01bbffa>] ip_rcv_finish+0xea/0x108                                         
+ [<d01bc49a>] ip_rcv+0x146/0x170                                               
+ [<d019d748>] netif_receive_skb+0x21c/0x268                                    
+ [<d0181088>] oeth_rx+0x25c/0x334                                              
+ [<d01811dc>] oeth_poll+0x38/0xbc                                              
+ [<d019e33c>] net_rx_action+0x90/0x16c                                         
+ [<d001b415>] __do_softirq+0x69/0x100                                          
+ [<d001b53e>] do_softirq+0x2a/0x34                                             
+ [<d001b325>] _local_bh_enable_ip+0xb9/0xe8                                    
+ [<d001b3aa>] local_bh_enable_ip+0xa/0xc                                       
+ [<d022c100>] _spin_unlock_bh+0x3c/0x40                                        
+ [<d019111e>] release_sock+0x52/0x54                                           
+ [<d01e5a31>] udp_sendmsg+0x4cd/0x5e0                                          
+ [<d01eefea>] inet_sendmsg+0x3e/0x48                                           
+ [<d018b740>] __sock_sendmsg+0x5c/0x68                                         
+ [<d018b6b0>] sock_sendmsg+0x74/0x94
+ [<d018b7a9>] kernel_sendmsg+0x3d/0x54
+ [<d020c338>] xs_send_kvec+0x80/0xa4
+ [<d020c4b4>] xs_sendpages+0x84/0x158
+ [<d020c7c1>] xs_udp_send_request+0x59/0x140
+ [<d020b1fa>] xprt_transmit+0xd6/0x24c
+ [<d020902e>] call_transmit+0xda/0x110
+ [<d020ff19>] __rpc_execute+0xa9/0x1f8
+ [<d021009d>] rpc_execute+0x1d/0x20
+ [<d0208458>] rpc_run_task+0x68/0x74
+ [<d00e8b20>] nfs_read_rpcsetup+0x230/0x260
+ [<d00e8eb8>] nfs_pagein_one+0x8c/0xa4
+ [<d00e6d8e>] nfs_pageio_doio+0x42/0x7c
+ [<d00e6df3>] nfs_pageio_add_request+0xf/0x34
+ [<d00e9500>] readpage_async_filler+0x70/0xa8
+ [<d00539c9>] read_cache_pages+0x61/0x98
+ [<d00e964a>] nfs_readpages+0x112/0x150
+ [<d0053a4a>] read_pages+0x26/0xa0
+ [<d0053c25>] __do_page_cache_readahead+0x161/0x19c
+ [<d0054000>] ra_submit+0x20/0x2c
+ [<d005428a>] ondemand_readahead+0x1a2/0x1ac
+ [<d00542b6>] page_cache_sync_readahead+0x22/0x24
+ [<d0049656>] do_generic_file_read+0x14e/0x51c
+ [<d0049f54>] generic_file_aio_read+0x254/0x2a4
+ [<d00dc225>] nfs_file_read+0xc1/0xd0
+ [<d007ead0>] do_sync_read+0x98/0xdc
+ [<d007ebd4>] vfs_read+0xac/0xf8
+ [<d00842ad>] kernel_read+0x3d/0x54
+ [<d0084f44>] prepare_binprm+0xf4/0x100
+ [<d0085473>] do_execve+0xfb/0x220
+ [<d000585e>] xtensa_execve+0x46/0x88
+ [<d0004e54>] system_call+0x40/0x50
+ [<d000476d>] _kernel_exception+0x10f/0x135
+ [<d0004e97>] kernel_execve+0xb/0x10
+ [<d0003732>] run_init_process+0x1e/0x20
+ [<d00037ed>] init_post+0xb9/0xdc
+ [<d0004e81>] kernel_thread+0x1d/0x28
+ [<d0229a69>] rest_init+0x15/0x90
+

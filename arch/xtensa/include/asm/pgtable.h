@@ -11,7 +11,7 @@
 #ifndef _XTENSA_PGTABLE_H
 #define _XTENSA_PGTABLE_H
 
-#include <asm-generic/pgtable-nopmd.h>
+#include <asm-generic/pgtable-nopmd.h>	/* Defines Macros assuming PMD and PUD are folded */
 #include <asm/page.h>
 
 /*
@@ -58,6 +58,7 @@
  */
 #define PTRS_PER_PTE		1024
 #define PTRS_PER_PTE_SHIFT	10
+#define PTRS_PER_PMD		1
 #define PTRS_PER_PGD		1024
 #define PGD_ORDER		0
 #define USER_PTRS_PER_PGD	(TASK_SIZE/PGDIR_SIZE)
@@ -67,10 +68,27 @@
 /*
  * Kernel's Virtual memory area. We keep a distance to other memory regions to be
  * on the safe side. See also fixmap.h
+ *
+ * Major Consumer of VMALLOC memory are kernel modules. Typically about 512 Pages.
+ *
+ * Ex:
+ * # cat /proc/vmallocinfo
+ * 	0xc0000000-0xc000c000   49152 cramfs_uncompress_init+0x1e/0x44 	pages=11  vmalloc
+ * 	0xc000d000-0xc0050000  274432 jffs2_zlib_init+0xf/0x6c 		pages=66  vmalloc
+ * 	0xc0051000-0xc005d000   49152 jffs2_zlib_init+0x31/0x6c 	pages=11  vmalloc
+ * 	0xc00af000-0xc00b5000   24576 module_alloc+0xd/0x14 		pages=5   vmalloc
+ * 	0xc00c3000-0xc00c5000    8192 module_alloc+0xd/0x14 		pages=1   vmalloc
+ * 	0xc021b000-0xc033c000 1183744 module_alloc+0xd/0x14 		pages=288 vmalloc
+ * 	0xc0345000-0xc0348000   12288 module_alloc+0xd/0x14 		pages=2   vmalloc
+ * 	0xc034d000-0xc034f000    8192 module_alloc+0xd/0x14 		pages=1   vmalloc
+ * 	0xc0366000-0xc0371000   45056 module_alloc+0xd/0x14 		pages=10  vmalloc
+ * 	0xc0385000-0xc038c000   28672 module_alloc+0xd/0x14 		pages=6   vmalloc
+ * 	==================================================================================
+ * 	Rough Total:							500 Pages
  */
 
 #define VMALLOC_START		0xC0000000
-#define VMALLOC_END		0xC7FEFFFF
+#define VMALLOC_END		0xC6FEFFFF				/* 7099 Pages */
 
 #if DCACHE_WAY_SIZE > ICACHE_WAY_SIZE
  #define MAX_CACHE_WAY_SIZE 	DCACHE_WAY_SIZE
@@ -198,12 +216,28 @@
 #define  PAGE_PROT_MASK (_PAGE_RING_MASK | _PAGE_CA_MASK | _PAGE_RIGHTS_MASK )	/* 0x3F: Bits 5...0 */
 
 #ifdef CONFIG_MMU
-#undef WITH_PAGE_USER
+
+/*
+ * The Xtensa MMU auto-refill circuitry loads can load an invalid PTE's into the TLB.
+ * Consequently, pages with PTE's set with PAGE_PROT_NONE end up getting loaded into the
+ * TLB which could interfear with other processes mapping the same address if they were 
+ * set with the kernel ASID:1.
+ * 
+ * By #defing WITH_PAGE_USER here, pte_clear() will set the PTE with the user ring
+ * set. So when the page fault occures the value loaded in the TLB will only
+ * effect the current process/ASID.
+ *
+ * Another side effect of this is hardware feature is that update_mmu_cahce() 
+ * has to invalidate the TLB mappings in both the Instruction and Data TLB's 
+ * with the exception address; thus flushing this bogus TLB entry and making it
+ * possible for the shinny new pte to be auto-refill'd into the TLB.
+ */
+#define WITH_PAGE_USER
 
 #ifdef  WITH_PAGE_USER
 /*
  * PROT_NONE means the page is protected and NONE of the access modes are allowed, ie: RWX == 0
- * NB: Other ARCH use PAGE_NOTE to imply this but it's use is local to pgtable.h.
+ * NB: Other ARCH use PAGE_NONE to imply this but it's use is local to pgtable.h.
  */
 #define PAGE_PROT_NONE	   __pgprot(_PAGE_CA_INVALID | _PAGE_PRESENT | _PAGE_USER | _PAGE_RIGHTS_NONE)
 #else
@@ -233,7 +267,7 @@
 # define _PAGE_DIRECTORY (_PAGE_VALID | _PAGE_ACCESSED | _PAGE_CA_WB)
 #endif
 
-#else /* no mmu */
+#else /* !CONFIG_MMU; ie: No MMU */
 
 # define PAGE_PROT_NONE  __pgprot(0)
 # define PAGE_SHARED     __pgprot(0)
@@ -292,8 +326,37 @@ static inline void pgtable_cache_init(void) { }
 
 /*
  * The pmd contains the kernel virtual address of the pte page.
+ * REMIND: 
+ * 	Why is pmd a pointer instead of a pmd structure?
  */
+#if 1
 #define pmd_page_vaddr(pmd) ((unsigned long)(pmd_val(pmd) & PAGE_MASK))
+#endif
+
+#if 0
+/*
+ * X86 like approach.
+ * Looks ok for HIGHMEM initialization but breaks non-HIGHMEM kernel
+ */
+#define pmd_page_vaddr(pmd) __va((unsigned long)(pmd_val(pmd) & PAGE_MASK))
+#endif
+
+#if 0
+/*
+ * ARM code.
+ * FAILS.
+ */
+static inline pte_t *pmd_page_vaddr(pmd_t pmd)
+{
+	unsigned long ptr;
+
+	ptr = pmd_val(pmd) & ~(PTRS_PER_PTE * sizeof(void *) - 1);
+	ptr += PTRS_PER_PTE * sizeof(void *);
+
+	return __va(ptr);
+}
+#endif
+
 #define pmd_page(pmd) virt_to_page(pmd_val(pmd))
 
 /*
@@ -327,13 +390,13 @@ static inline void pgtable_cache_init(void) { }
 #define pte_clear(mm, addr, ptep)                                               \
 	do {                                                                    \
 		if (mm != NULL)							\
-			update_pte(ptep, __pte(_PAGE_CA_INVALID | _PAGE_USER));    \
+			set_pte(ptep, __pte(_PAGE_CA_INVALID | _PAGE_USER));    \
 		else                                                            \
-			update_pte(ptep, __pte(_PAGE_CA_INVALID | _PAGE_USER));    \
+			set_pte(ptep, __pte(_PAGE_CA_INVALID | _PAGE_USER));    \
 	} while(0)
 #else
 #define pte_clear(mm,addr,ptep)                                         \
-        do { update_pte(ptep, __pte(_PAGE_CA_INVALID)); } while(0)
+        do { set_pte(ptep, __pte(_PAGE_CA_INVALID)); } while(0)
 #endif
 	
 
@@ -393,17 +456,21 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	return __pte((pte_val(pte) & _PAGE_CHG_MASK) | pgprot_val(newprot));
 }
 
-static inline void update_pte_bp(void) {}
+static inline void set_pte_bp(void) {}
 /*
  * Certain architectures need to do special things when pte's
  * within a page table are directly modified.  Thus, the following
  * hook is made available.
+ *
+ * Renamed from update_pte() during HIGHMEM assimulation. The X86
+ * highmem.c was using set_pte() to do the same thing as uodate_pte()
+ * was doing. Seemed like a time to be more compatable with X86 conventions.
  */
-static inline void update_pte(pte_t *ptep, pte_t pte)
+static inline void set_pte(pte_t *ptep, pte_t pte)
 {
 	*ptep = pte;
 
-	if ((pte_val(pte) & PAGE_PROT_MASK) == 0X1f) update_pte_bp();
+	if ((pte_val(pte) & PAGE_PROT_MASK) == 0X1f) set_pte_bp();
 
 #if defined(CACHE_ALIASING_POSSIBLE) || defined(CONFIG_SMP)
 	/* 
@@ -428,7 +495,7 @@ struct mm_struct;
 static inline void
 set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep, pte_t pteval)
 {
-	update_pte(ptep, pteval);
+	set_pte(ptep, pteval);
 }
 
 
@@ -455,7 +522,7 @@ ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr,
 	pte_t pte = *ptep;
 	if (!pte_young(pte))
 		return 0;
-	update_pte(ptep, pte_mkold(pte));
+	set_pte(ptep, pte_mkold(pte));
 	return 1;
 }
 
@@ -471,16 +538,35 @@ static inline void
 ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
   	pte_t pte = *ptep;
-  	update_pte(ptep, pte_wrprotect(pte));
+  	set_pte(ptep, pte_wrprotect(pte));
 }
-
-/* to find an entry in a kernel page-table-directory */
+/*
+ * Find an entry in a kernel page-table-directory,
+ *
+ * A shortcut, which implies the use of the kernel's pgd, 
+ * instead  of a process's.
+ *
+ * NOTE: _k at the end of the function name.
+ */
 #define pgd_offset_k(address)	pgd_offset(&init_mm, address)
 
-/* to find an entry in a page-table-directory */
+/* 
+ * Finds an entry in a page-table-directory, returns a (pgd_t *).
+ * pgd_index() is used get the offset into the pgd page's array of pgd_t's;
+ */ 
 #define pgd_offset(mm,address)	((mm)->pgd + pgd_index(address))
 
 #define pgd_index(address)	((address) >> PGDIR_SHIFT)
+
+/*
+ * The pmd page can be thought of an array like this: pmd_t[PTRS_PER_PMD].
+ *
+ * This macro returns the index of the entry in the pmd page which would
+ * control the given virtual address
+ */
+#define pmd_index(address)                              \
+        (((address) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
+
 
 /* Find an entry in the second-level page table.. */
 #define pmd_offset(dir,address) ((pmd_t*)(dir))

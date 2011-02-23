@@ -1,0 +1,60 @@
+Common crash occuring after 10 hours of stress testing:
+-------------------------------------------------------
+
+		(gdb) bt
+		#0  bad_page_fault_bp () at arch/xtensa/mm/fault.c:267
+		#1  0xd00093ab in bad_page_fault (regs=0xd06578c0, address=0x38, sig=0xb) at arch/xtensa/mm/fault.c:287
+		#2  0xd0008f0d in do_page_fault (regs=0xd06578c0) at arch/xtensa/mm/fault.c:93
+		#3  0xd00045d5 in _kernel_exception () at arch/xtensa/kernel/entry.S:765
+		#4  0xd014fa7b in __list_add (new=0xd0413ff8, prev=0xd02bf58c, next=0x34) at lib/list_debug.c:23
+		#5  0xd004e2e8 in list_add (new=0xd0413ff8, head=0xd02bf58c) at include/linux/list.h:66
+		#6  0xd004e065 in __free_one_page (page=0xd0413fe0, zone=0xd02bf524, order=0x0) at mm/page_alloc.c:524
+		#7  0xd004de39 in free_pages_bulk (zone=0xd02bf524, count=0x1, list=0xd02bf54c, order=0x0) at mm/page_alloc.c:568
+		#8  0xd004ede9 in free_hot_cold_page (page=0xd042d8e0, cold=0x0) at mm/page_alloc.c:1061
+		#9  0xd004eea0 in free_hot_page (page=0xd042d8e0) at mm/page_alloc.c:1070
+		#10 0xd0053f85 in __page_cache_release (page=0xd042d8e0) at mm/swap.c:58
+		#11 0xd00542ce in put_page (page=0xd042d8e0) at mm/swap.c:77
+		#12 0xd0070f26 in free_page_and_swap_cache (page=0xd042d8e0) at mm/swap_state.c:221
+	------> #13 0xd0061eb5 in tlb_remove_page (tlb=0xd02fc004, page=0xd042d8e0) at include/asm-generic/tlb.h:105
+		#14 0xd0061d6d in zap_pte_range (tlb=0xd02fc004, vma=0xd7aaee9c, pmd=0xd7d6c200, addr=0x20103000, end=0x2014d000, zap_work=0xd0657d9c, details=0x0) at mm/memory.c:828
+		#15 0xd006207c in zap_pmd_range (tlb=0xd02fc004, vma=0xd7aaee9c, pud=0xd7d6c200, addr=0x20103000, end=0x2014d000, zap_work=0xd0657d9c, details=0x0) at mm/memory.c:868
+		#16 0xd0062004 in zap_pud_range (tlb=0xd02fc004, vma=0xd7aaee9c, pgd=0xd7d6c200, addr=0x20103000, end=0x2014d000, zap_work=0xd0657d9c, details=0x0) at mm/memory.c:890
+		#17 0xd0061f80 in unmap_page_range (tlb=0xd02fc004, vma=0xd7aaee9c, addr=0x20103000, end=0x2014d000, zap_work=0xd0657d9c, details=0x0) at mm/memory.c:917
+		#18 0xd00621ec in unmap_vmas (tlbp=0xd0657df8, vma=0xd7aaee9c, start_addr=0x0, end_addr=0xffffffff, nr_accounted=0xd0657dfc, details=0x0) at mm/memory.c:1014
+		#19 0xd0068e82 in exit_mmap (mm=0xd7bdb880) at mm/mmap.c:2109
+		#20 0xd0012485 in mmput (mm=0xd7bdb880) at kernel/fork.c:484
+		#21 0xd0017a0d in exit_mm (tsk=0xd7aa3680) at kernel/exit.c:731
+		#22 0xd00181ee in do_exit (code=0x0) at kernel/exit.c:1072
+		#23 0xd0018415 in sys_exit (error_code=0x0) at kernel/exit.c:1149
+		#24 0xd0004cbc in system_call () at arch/xtensa/kernel/entry.S:2158
+		#25 0xd000440c in _user_exception () at arch/xtensa/kernel/entry.S:336
+		(gdb) 
+
+101 static inline void tlb_remove_page(struct mmu_gather *tlb, struct page *page)
+ 102 {
+ 103         tlb->need_flush = 1;
+ 104         if (tlb_fast_mode(tlb)) {
+ 105                 free_page_and_swap_cache(page);
+ 106                 return;
+ 107         }
+ 108         tlb->pages[tlb->nr++] = page;
+ 109         if (tlb->nr >= FREE_PTE_NR)
+ 110                 tlb_flush_mmu(tlb, 0, 0);
+ 111 }
+
+/*
+ * For UP we don't need to worry about TLB flush
+ * and page free order so much..
+ */
+#ifdef CONFIG_SMP
+  #ifdef ARCH_FREE_PTR_NR
+    #define FREE_PTR_NR   ARCH_FREE_PTR_NR
+  #else
+    #define FREE_PTE_NR 506
+  #endif
+  #define tlb_fast_mode(tlb) ((tlb)->nr == ~0U)
+#else
+  #define FREE_PTE_NR   1
+  #define tlb_fast_mode(tlb) 1
+#endif
+

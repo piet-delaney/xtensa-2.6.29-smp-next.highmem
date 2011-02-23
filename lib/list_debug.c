@@ -10,6 +10,18 @@
 #include <linux/list.h>
 
 /*
+ * Seems resonable to panic with list corruption
+ * at least while your debugging the kernel.
+ */
+#if defined(CONFIG_XTENSA) && defined(CONFIG_DEBUG_KERNEL)
+#undef  WARN
+#define WARN(condition, format...) { 	\
+	if (condition) 			\
+		panic(format);		\
+}			
+#endif
+
+/*
  * Insert a new entry between two known consecutive entries.
  *
  * This is only for internal list manipulation where we know

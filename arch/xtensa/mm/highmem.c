@@ -104,8 +104,11 @@ void *kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	unsigned long vaddr;
 	pte_t *ptep;
 	pte_t pte;
+	long paddr = page_to_phys(page);
+	int p_alias = DCACHE_ALIAS(paddr);
+	int cpu =  smp_processor_id();
+	int v_alias;
 
-	dprintf("(page:%p, type:%d, prot)\n", page, type);
 
 	/* even !CONFIG_PREEMPT needs this, for in_atomic in do_page_fault */
 	pagefault_disable();
@@ -113,11 +116,18 @@ void *kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	if (!PageHighMem(page))
 		return page_address(page);
 
+	dprintf("(page:%p, type:%d, prot): paddr:0X%lx, p_alias:%x\n", 
+		  page,    type,           paddr,       p_alias);
+
 	debug_kmap_atomic_prot(type);
 
-	idx = type + KM_TYPE_NR*smp_processor_id();
+	idx = ( &kmap_pte[0][cpu][type][p_alias] ) -  &kmap_pte[0][0][0][0];
+
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
-	ptep = kmap_pte - idx;
+	v_alias = DCACHE_ALIAS(vaddr);
+	BUG_ON(v_alias != p_alias);
+	ptep = (pte_t *) &kmap_pte[0][0][0][idx];
+	BUG_ON(ptep != (pte_t *) &kmap_pte[0][cpu][type][p_alias]);
 	BUG_ON( !pte_none(*ptep) );
 	pte = mk_pte(page, prot);
 	set_pte(ptep, pte);
@@ -149,7 +159,7 @@ void *kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	}
 #endif
 
-	dprintf("return(vaddr:0X%lx);\n", vaddr);
+	dprintf("return(vaddr:0X%lx);, idx:%d\n", vaddr, idx);
 	return (void *)vaddr;
 }
 
@@ -175,9 +185,13 @@ void *kmap_atomic(struct page *page, enum km_type type)
 void kunmap_atomic(void *kvaddr, enum km_type type)
 {
 	unsigned long vaddr = (unsigned long) kvaddr & PAGE_MASK;
-	enum fixed_addresses idx = type + KM_TYPE_NR*smp_processor_id();
+	int cpu =  smp_processor_id();
+	int alias = DCACHE_ALIAS(vaddr);
+	pte_t *ptep = (pte_t *) &kmap_pte[0][cpu][type][alias];
+	enum fixed_addresses idx = ( &kmap_pte[0][cpu][type][alias] ) - &kmap_pte[0][0][0][0];
 
-	dprintf("(kvaddr:%p, type:%d)\n", kvaddr,    type);
+	dprintf("(kvaddr:%p, type:%d): alias:0x%x, ptep:%p, idx:%d\n", 
+		  kvaddr,    type,     alias,      ptep,    idx);
 
 	/*
 	 * Force other mappings to Oops if they'll try to access this pte
@@ -186,7 +200,7 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 	 * a protected page in a hypervisor.
 	 */
 	if (vaddr == __fix_to_virt(FIX_KMAP_BEGIN+idx))
-		kpte_clear_flush(kmap_pte - idx, vaddr);
+		kpte_clear_flush(ptep, vaddr);
 	else {
 #ifdef CONFIG_DEBUG_HIGHMEM
 		BUG_ON(vaddr < PAGE_OFFSET);
@@ -203,18 +217,19 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
  */
 void *kmap_atomic_pfn(unsigned long pfn, enum km_type type)
 {
-	enum fixed_addresses idx;
+	int alias = DCACHE_ALIAS(pfn << PAGE_SHIFT);
+	int cpu =  smp_processor_id();
+	pte_t *ptep = (pte_t *) &kmap_pte[0][cpu][type][alias];
+	enum fixed_addresses idx = ( &kmap_pte[0][cpu][type][alias] ) - &kmap_pte[0][0][0][0];
 	unsigned long vaddr;
-	pte_t *ptep;
 	pte_t pte;
 
-	dprintf("(pfn:0X%lx, type:%d)\n", pfn, type);
+	dprintf("(pfn:0X%lx, type:%d): alias:%x, ptep:%p, idx:%d\n", 
+		  pfn,       type,     alias,    ptep,    idx);
 
 	pagefault_disable();
 
-	idx = type + KM_TYPE_NR*smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
-	ptep = kmap_pte - idx;
 	pte = pfn_pte(pfn, kmap_prot);
 	set_pte(ptep, pte);
 	arch_flush_lazy_mmu_mode();
@@ -226,9 +241,10 @@ EXPORT_SYMBOL_GPL(kmap_atomic_pfn); /* temporarily in use by i915 GEM until vmap
 
 struct page *kmap_atomic_to_page(void *ptr)
 {
-	unsigned long idx, vaddr = (unsigned long)ptr;
-	pte_t *pte;
+	unsigned long idx;				/* Index into FIXADDR_SIZE, including HOLE */
+	unsigned long vaddr = (unsigned long)ptr;
 	struct page *page;
+	pte_t *pte;
 
 	dprintf("(ptr:%p)\n", ptr);
 
@@ -237,11 +253,11 @@ struct page *kmap_atomic_to_page(void *ptr)
 		goto done;
 	}
 	idx = virt_to_fix(vaddr);
-	pte = kmap_pte - (idx - FIX_KMAP_BEGIN);
+	pte = (pte_t *) &kmap_pte[0][0][0][idx - FIX_KMAP_BEGIN];
 	page = pte_page(*pte);
 
 done:
-	dprintf("return(page:%p)\n", page);
+	dprintf("return(page:%p); idx:%lu, pte:%p\n", page, idx, pte);
 	return(page);
 }
 

@@ -167,7 +167,7 @@ static void __init pagetable_init(void)
 
 #ifdef CONFIG_HIGHMEM
 pgprot_t kmap_prot;
-pte_t *kmap_pte;
+kmap_pte_table_t *kmap_pte;		/* Starts with KMAP_BEGIN, after hole at the begining */
 
 static inline pte_t *kmap_get_fixmap_pte(unsigned long vaddr)
 {

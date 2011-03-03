@@ -27,7 +27,9 @@
  * So the the 4 Mbytes is shared between the interrupt time FIXED_MAPPINGS and 
  * the normal interruptable PERSISTANT mappings.
  *
- * For now, to keep it simple  we just split the area in half. 
+ * For now, to keep it simple  we just split the area in about half; leaving 8 unused entries
+ * between the persistand and temporary entries.
+ *
  * Later We'll try a tigher setting of:
  * 
  * 	LAST_PKMAP = PTRS_PER_PTE - FIX_KMAP_END
@@ -35,7 +37,7 @@
  * See diagram in arch/xtensa/include/asm/fixmap.h
  */
 #define PKMAP_BASE              (FIXADDR_TOP - PMD_SIZE)
-#define LAST_PKMAP 		(PTRS_PER_PTE/2)		/* 512 */
+#define LAST_PKMAP 		((PTRS_PER_PTE/2) - 8)		/* 512 - 8 */
 #define LAST_PKMAP_MASK 	(LAST_PKMAP-1)
 #define PKMAP_NR(virt)  	((virt-PKMAP_BASE) >> PAGE_SHIFT)
 #define PKMAP_ADDR(nr)  	(PKMAP_BASE + ((nr) << PAGE_SHIFT))

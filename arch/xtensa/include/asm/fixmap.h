@@ -23,7 +23,25 @@
 #include <asm/kmap_types.h>
 #endif
 
-extern pte_t *kmap_pte;
+#if !defined(NR_CPUS) || !defined(KM_TYPES) || !defined(DCACHE_ALIAS_ORDER)
+#error
+#endif
+
+#ifndef NR_CPUS
+#error
+#endif
+
+#ifndef KM_TYPES
+#error
+#endif
+
+#ifndef DCACHE_ALIAS_ORDER
+#error
+#endif
+
+typedef pte_t kmap_pte_table_t [NR_CPUS] [KM_TYPES] [1 << DCACHE_ALIAS_ORDER];
+
+extern kmap_pte_table_t *kmap_pte;
 extern pgprot_t kmap_prot;
 
 /*
@@ -58,7 +76,15 @@ enum fixed_addresses {
 #ifdef CONFIG_HIGHMEM
 	/* reserved pte's for temporary kernel mappings */
 	FIX_KMAP_BEGIN,
+#ifdef DCACHE_ALIASING_POSSIBLE
+	/* 
+ 	 * We allocate a page for each alias and return a page matching the
+ 	 * alias bits of the physical page being mapped.
+ 	 */
+	FIX_KMAP_END = FIX_KMAP_BEGIN+(KM_TYPE_NR*NR_CPUS*(1<<DCACHE_ALIAS_ORDER))-1,
+#else
 	FIX_KMAP_END = FIX_KMAP_BEGIN+(KM_TYPE_NR*NR_CPUS)-1,
+#endif
 #endif
 	__end_of_fixed_addresses
 };
@@ -151,12 +177,23 @@ enum fixed_addresses {
 #define FIXADDR_SIZE	(__end_of_fixed_addresses << PAGE_SHIFT)
 #define FIXADDR_START	(FIXADDR_TOP - FIXADDR_SIZE)
 
+#undef FIXADDR_INDEXED_HIGH_TO_LOW
+
 /* 
  * FIXED-MAPPED equivalent to __va() and __pa() macros; passed an index.
  * Used by kmap_atomic() and kunmap_atomic().
  */
+#ifdef FIXADDR_INDEXED_HIGH_TO_LOW
+/* Indexed from high memory to low memory */
 #define __fix_to_virt(x)	(FIXADDR_TOP - ((x) << PAGE_SHIFT))
 #define __virt_to_fix(x)	((FIXADDR_TOP - ((x)&PAGE_MASK)) >> PAGE_SHIFT)
+
+#else
+
+/* Indxed Low to High; index 0 is at hole  */
+#define __fix_to_virt(x)	(FIXADDR_START + ((x) << PAGE_SHIFT))
+#define __virt_to_fix(x)	((FIXADDR_START + ((x)&PAGE_MASK)) >> PAGE_SHIFT)
+#endif
 
 extern void __this_fixmap_does_not_exist(void);
 

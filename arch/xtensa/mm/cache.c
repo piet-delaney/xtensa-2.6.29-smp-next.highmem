@@ -87,7 +87,6 @@ int config_ignore_PG_arch_1 = 0;
  * Any time the kernel writes to a user page cache page, or it is about to
  * read from a page cache page this routine is called.
  */
-
 void flush_dcache_page(struct page *page)
 {
 	struct address_space *mapping = page_mapping(page);
@@ -104,24 +103,49 @@ void flush_dcache_page(struct page *page)
 		return;
 
 	} else {
-
 		unsigned long phys = page_to_phys(page);
 		unsigned long temp = page->index << PAGE_SHIFT;
 		unsigned long mask = DCACHE_ALIAS_MASK;
 		unsigned long alias = !(DCACHE_ALIAS_EQ(temp, phys));
 		unsigned long virt;
+		void *vaddr = 0;
+#ifdef CONFIG_HIGHMEM
+		int is_preemptible = preemptible();
+		int need_to_kunmap_atomic = 0;
+		int need_to_kunmap = 0;
+#endif
 
 		/* 
 		 * Flush the page in kernel space and user space.
 		 * Note that we can omit that step if aliasing is not
 		 * an issue, but we do have to synchronize I$ and D$
-		 * if we have a mapping.
+		 * if we have a user-space mapping.
 		 */
 		if (!alias && !mapping)
 			return;
 
-		/* Flush page in kernel space */
-		__flush_invalidate_dcache_page((long)page_address(page));
+		/* 
+ 		 * Flush page in kernel space. For HIGHMEM
+ 		 * with cache alias we will be getting back
+ 		 * a virtual address with the same alias bits
+ 		 * as physical memory. So all HIGHMEM kernel
+ 		 * addresses have the same alias bit.
+ 		 */
+#ifdef CONFIG_HIGHMEM
+		 if (PageHighMem(page)) {
+			if (is_preemptible)
+				vaddr =  kmap_high_get(page);
+			
+			if (vaddr == NULL) {
+				vaddr = kmap_atomic(page, KM_FLUSH_DCACHE_PAGE);
+				 need_to_kunmap_atomic = 1;
+			} else
+				 need_to_kunmap = 1;
+		}
+#else
+		vaddr = page_address(page);
+#endif
+		__flush_invalidate_dcache_page((long)vaddr);
 
 		virt = TLBTEMP_BASE_1 + (temp & mask);
 
@@ -130,6 +154,16 @@ void flush_dcache_page(struct page *page)
 
 		if (mapping)
 			__invalidate_icache_page_alias(virt, phys);
+
+#ifdef CONFIG_HIGHMEM
+		/*
+		 * Drop Highmem mapings if we had to use one.
+		 */ 
+		if (need_to_kunmap_atomic) 
+			 kunmap_atomic(vaddr, KM_FLUSH_DCACHE_PAGE);
+		else if (need_to_kunmap)
+			 kunmap_high(page);
+#endif
 	}
 
 	/* There shouldn't be an entry in the cache for this page anymore. */
@@ -154,10 +188,44 @@ void flush_dcache_page(struct page *page)
 void __flush_anon_page(struct vm_area_struct *vma, struct page *page, unsigned long vmaddr)
 {
 	unsigned long pfn;
+#ifdef CONFIG_HIGHMEM
+	int is_preemptible;
+	int need_to_kunmap_atomic = 0;
+	int need_to_kunmap = 0;
+#endif
+	void *page_kaddr = 0;	/* Permaniant, Persistant, or Dynamic ...
+				  ... kernel virtual address of page */
 
 	/* VIPT non-aliasing caches need do nothing */
 	if (cache_is_vipt_nonaliasing())
 		return;
+
+	
+	/* 
+ 	 * Flush page in kernel space. For HIGHMEM
+ 	 * with cache alias we will be getting back
+ 	 * a virtual address with the same alias bits
+ 	 * as physical memory. So all HIGHMEM kernel
+ 	 * addresses have the same alias bit.
+ 	 */
+#ifdef CONFIG_HIGHMEM
+	is_preemptible = preemptible();
+	 if (PageHighMem(page)) {
+		if (is_preemptible)
+			page_kaddr =  kmap_high_get(page);
+		
+		if (page_kaddr == NULL) {
+			/* Dynamic Kernal Address */
+			page_kaddr = kmap_atomic(page, KM_FLUSH_ANON_PAGE);
+			 need_to_kunmap_atomic = 1;
+		} else 
+			/* Got a Persistant Kernela Address */
+			 need_to_kunmap = 1;
+	}
+#else
+	/* Use a permanant kernel address */
+	page_kaddr = page_address(page);
+#endif
 
 	/*
 	 * Write back and invalidate userspace mapping.
@@ -183,7 +251,17 @@ void __flush_anon_page(struct vm_area_struct *vma, struct page *page, unsigned l
 	 * in this mapping of the page.  FIXME: this is overkill
 	 * since we actually ask for a write-back and invalidate.
 	 */
-	__flush_invalidate_dcache_page((long)page_address(page));
+	__flush_invalidate_dcache_page((long) page_kaddr);
+
+#ifdef CONFIG_HIGHMEM
+	/*
+	 * Drop Highmem kernel mapings if we had to use one.
+	 */ 
+	if (need_to_kunmap_atomic) 
+		 kunmap_atomic(page_kaddr, KM_FLUSH_ANON_PAGE);
+	else if (need_to_kunmap)
+		 kunmap_high(page);
+#endif
 }
 
 #if defined(DCACHE_ALIASING_POSSIBLE) || (defined(CONFIG_SMP) && defined(CONFIG_ARCH_HAS_SMP))
@@ -270,6 +348,7 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 
 	page = pfn_to_page(pfn);
 
+#ifdef CONFIG_HIGHMEM
 	 if (PageHighMem(page)) {
 		highmem_addr = 1;
 		vaddr =  kmap_high_get(page);
@@ -283,6 +362,10 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 		/* Just a normal non-HIGHMEM address */
 		vaddr = page_address(page);
 	}
+#else
+	vaddr = page_address(page);
+#endif
+
 	page_vaddr = (unsigned long) vaddr;
 	BUG_ON(page_vaddr == 0);
 
@@ -315,6 +398,7 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 	if (!icache_page_flushed && !highmem_addr && vma->vm_flags & VM_EXEC) 
 		__invalidate_icache_page(page_vaddr);
 
+#ifdef CONFIG_HIGHMEM
 	/*
 	 * Drop Highmem mapings if we had to use one.
 	 */ 
@@ -322,6 +406,7 @@ update_mmu_cache(struct vm_area_struct * vma, unsigned long addr, pte_t pte)
 		 kunmap_atomic(vaddr, KM_TLB_CACHE_FLUSH);
 	else if (need_to_kunmap)
 		 kunmap_high(page);
+#endif
 }
 
 /*

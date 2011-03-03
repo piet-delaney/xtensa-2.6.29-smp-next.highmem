@@ -233,6 +233,7 @@ def set_breakpoints
 	if $debug_page_migration
 		echo "\n"
 		echo "Setting page migration Breakpoints\n"
+		break usemap_size
 		break setup_usemap
 		break get_pageblock_migratetype
 		break get_pageblock_flags_group
@@ -249,7 +250,7 @@ def set_breakpoints
 	if $debug_bootmem_init 
 		echo "\n"
 		echo "Setting Boot Memory Initialization Breakpoints\n"
-		break mem)init
+		break mem_init
 		break bootmem_init
 		break zones_init
 		break free_reserved_mem
